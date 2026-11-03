@@ -4,6 +4,7 @@ import { timeAgo } from './common';
 import { vp } from '../play/game';
 import type { Roster } from '../roster/model';
 import { uid } from '../roster/model';
+import { lastBackupAt } from '../backup';
 
 function importRosterFile(file: File) {
   file.text().then((t) => {
@@ -17,6 +18,14 @@ function importRosterFile(file: File) {
   });
 }
 
+const BACKUP_REMINDER_DAYS = 14;
+
+function needsBackup(items: number) {
+  if (!items) return false;
+  const last = lastBackupAt();
+  return !last || Date.now() - last > BACKUP_REMINDER_DAYS * 86400_000;
+}
+
 export default function Home() {
   const rosters = useStore(rostersStore);
   const games = useStore(gamesStore);
@@ -25,11 +34,22 @@ export default function Home() {
       <div className="topbar">
         <img src="./icon.svg" width={28} height={28} alt="" />
         <div className="title">Muster &amp; Battle</div>
+        <button className="small" onClick={() => navigate('/backup')}>
+          Backup
+        </button>
         <button className="small" onClick={() => navigate('/data')}>
-          Data sources
+          Data
         </button>
       </div>
       <div className="page">
+        {needsBackup(rosters.length + games.length) && (
+          <div className="banner row" style={{ marginBottom: 12 }}>
+            <span className="grow">{lastBackupAt() ? 'It’s been a while since your last backup.' : 'Your lists are only stored on this device.'} Back them up to keep them safe.</span>
+            <button className="small" onClick={() => navigate('/backup')}>
+              Back up now
+            </button>
+          </div>
+        )}
         <div className="grid2">
           <section>
             <div className="spread">

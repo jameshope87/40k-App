@@ -3,6 +3,7 @@ import type { GameState, UnitState } from '../../play/game';
 import { adjustWounds, bodyguardOf, formations, isHalfStrength, log, totalWoundsRemaining } from '../../play/game';
 import { Modal } from '../common';
 import Datasheet from '../Datasheet';
+import { PhotoManager, UnitThumb } from '../Photos';
 import { unitLabel } from './abilities';
 
 export function StatusPills({ u }: { u: UnitState }) {
@@ -117,6 +118,7 @@ export function UnitDetail({ game, side, uid, onClose, update }: { game: GameSta
           <input value={u.notes ?? ''} onChange={(e) => mut((x) => (x.notes = e.target.value))} placeholder="e.g. attached to…, objective held" />
         </label>
       </div>
+      <PhotoManager target={{ entryId: u.entryId, selUid: u.selUid, typeName: u.sheet.name }} />
       <div style={{ marginTop: 10 }}>
         <Datasheet sheet={u.sheet} compact />
       </div>
@@ -141,6 +143,7 @@ export function ArmyPanel({ game, update }: { game: GameState; update: (fn: (g: 
               onClick={() => setDetail({ side: side as 0 | 1, uid: u.uid })}
               style={{ cursor: 'pointer', paddingLeft: bodyguardOf(p, u) ? 18 : 0, borderBottomStyle: p.units.some((x) => bodyguardOf(p, x) === u) ? 'dashed' : undefined }}
             >
+              <UnitThumb entryId={u.entryId} selUid={u.selUid} size={32} alt={unitLabel(u)} />
               <div className="grow">
                 <div className="ellipsis">
                   {bodyguardOf(p, u) && <span className="gold">↳ </span>}

@@ -30,6 +30,9 @@ export interface UnitState {
   attachedTo?: string;
   /** How it is attached, e.g. "Leader" or "Supported by". */
   attachedAs?: string;
+  /** Datasheet entry id and roster selection uid (used to find unit photos). */
+  entryId?: string;
+  selUid?: string;
 }
 
 export interface PlayerState {

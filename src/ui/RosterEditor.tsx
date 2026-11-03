@@ -11,6 +11,8 @@ import { describeUnit } from '../roster/summary';
 import { addRoot, chooseInGroup, duplicateSelection, removeSelection, renameSelection, rosterToText, setAttachment, setChildCount } from '../roster/ops';
 import type { Roster } from '../roster/model';
 import { KNOWN_SOURCES } from '../bsdata/loader';
+import { PhotoManager, UnitThumb } from './Photos';
+import { safeFileName, saveTextFile } from '../files';
 
 const CATEGORY_ORDER = ['Configuration', 'Epic Hero', 'Character', 'Battleline', 'Dedicated Transport', 'Infantry', 'Mounted', 'Swarm', 'Beast', 'Monster', 'Vehicle', 'Fortification'];
 
@@ -132,6 +134,7 @@ function UnitCard({ ev, r, open, onToggle, h, roster, update }: { ev: Evaluator;
   return (
     <div className={`unit-card ${open ? 'open' : ''}`}>
       <div className="head" onClick={onToggle}>
+        {isUnit && <UnitThumb entryId={r.node.id} selUid={r.sel.uid} alt={name} />}
         <div className="grow">
           <div className="ellipsis">
             <b>{r.sel.customName || name}</b>
@@ -156,6 +159,7 @@ function UnitCard({ ev, r, open, onToggle, h, roster, update }: { ev: Evaluator;
           </div>
           {isUnit && (
             <>
+              <PhotoManager target={{ entryId: r.node.id, selUid: r.sel.uid, typeName: name }} />
               <Attachments ev={ev} r={r} roster={roster} update={update} />
               <div className="row" style={{ margin: '10px 0' }}>
                 <button
@@ -274,13 +278,13 @@ export default function RosterEditor({ uid }: { uid: string }) {
     }
     setMenu(false);
   };
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify(roster, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${roster.name.replace(/[^\w-]+/g, '_')}.json`;
-    a.click();
+  const exportJson = async () => {
     setMenu(false);
+    try {
+      await saveTextFile(`${safeFileName(roster.name)}.json`, JSON.stringify(roster, null, 2));
+    } catch (e) {
+      setCopied(`Could not export: ${String((e as Error).message ?? e)}`);
+    }
   };
 
   const add = (n: Node) => {

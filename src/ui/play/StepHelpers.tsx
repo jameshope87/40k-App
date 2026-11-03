@@ -16,6 +16,7 @@ import { rollDice, parseNum } from '../../play/dice';
 import { DiceFaces } from '../common';
 import { StatusPills } from './UnitPanel';
 import { unitLabel } from './abilities';
+import { UnitThumb } from '../Photos';
 
 type Update = (fn: (g: GameState) => void) => void;
 type OpenAttack = (side: 0 | 1, uid: string, kind: 'ranged' | 'melee') => void;
@@ -40,6 +41,7 @@ function FormationLine({ f, children }: { f: Formation; children?: ReactNode }) 
   const s = f.lead.sheet.stats[0];
   return (
     <div className="unit-row">
+      <UnitThumb entryId={f.lead.entryId} selUid={f.lead.selUid} size={32} alt={unitLabel(f.lead)} />
       <div className="grow">
         <div className="ellipsis">
           <b>{unitLabel(f.lead)}</b>

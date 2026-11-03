@@ -23,6 +23,8 @@ async function buildPlayer(name: string, roster: Roster | undefined, onProgress:
   for (const r of ev.roots) {
     if (r.node.type !== 'unit' && r.node.type !== 'model') continue;
     const u = makeUnitState(describeUnit(ev, r));
+    u.entryId = r.node.id;
+    u.selUid = r.sel.uid;
     bySel.set(r.sel.uid, u);
     p.units.push(u);
   }

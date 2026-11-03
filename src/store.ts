@@ -6,7 +6,7 @@ import { KNOWN_SOURCES, type DataSource } from './bsdata/loader';
 
 type Listener = () => void;
 
-class PersistedStore<T> {
+export class PersistedStore<T> {
   private value: T;
   private listeners = new Set<Listener>();
 

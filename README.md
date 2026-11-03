@@ -27,6 +27,17 @@ It runs in any modern browser, installs as a PWA (offline capable) and builds as
   - The "one Leader and one Support per bodyguard" limits are checked.
   - Abilities that depend on an attached character (for example Feel No Pain 5+ with a Technomancer) switch on automatically.
 - Rename, duplicate and remove units. Copy the list as text, or export/import it as JSON.
+- **Unit photos:** take or choose photos of your painted models.
+  - By default a photo is shown for every unit of that datasheet. You can also give one unit its own photo.
+  - Photos are shrunk on the device (about 1280px JPEG) and stored in its built-in database (IndexedDB).
+  - They appear on unit cards and in Play mode.
+
+### Backup & restore
+- One file holds all army lists, games, settings and photos.
+- In the Android app it opens the share screen, so you can save it straight to Google Drive, Files or email. In a browser it downloads.
+- **Restore** either *merges* (keeps the most recently edited copy of each list and game) or *replaces* everything. It also accepts a single exported list.
+- The home screen reminds you if you haven't backed up for 14 days.
+- Records are merged by `uid` and `updatedAt`, ready for future cloud sync.
 - Catalogues are cached in IndexedDB, so the app works offline once a faction has been opened. You can also load `.json`/`.cat`/`.gst` files from your device.
 
 ### Play mode
@@ -102,4 +113,5 @@ BSDATA_DIR=/tmp/wh40k-11e BSDATA_CAT=Necrons npx vitest run integration
   - in-unit associations (such as icons or instruments assigned to models)
 - In Play mode, damage to an attached unit is applied to the bodyguard. Pick the character as the target when attacks can be allocated to it.
 - The Play-mode summaries follow the 11th edition turn structure as a quick reference. They are deliberately brief, and some edge cases are left to the rulebook.
+- Planned: accounts with cloud sync (Supabase), building on the backup format.
 - Ideas: shared game sessions between two phones, mission and secondary card tracking, Crusade support, importing New Recruit / BattleScribe `.rosz` files.

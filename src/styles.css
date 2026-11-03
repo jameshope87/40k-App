@@ -733,3 +733,51 @@ details > summary::marker {
     transform: rotate(360deg);
   }
 }
+
+/* Photos */
+.thumb {
+  display: inline-block;
+  object-fit: cover;
+  background: var(--bg-3);
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+.thumb.round {
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+.photos {
+  margin: 10px 0;
+}
+.photo-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  align-items: center;
+  min-height: 24px;
+}
+.photo-btn {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.photo-btn .thumb {
+  width: 84px;
+  height: 84px;
+  border-radius: 0;
+  display: block;
+}
+.photo-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-size: 0.6rem;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
