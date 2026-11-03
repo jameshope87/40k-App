@@ -65,5 +65,22 @@ describe.skipIf(!dir)('real BSData catalogue', () => {
     const unit = ev.roots.find((r) => r.node.type === 'unit' || r.node.type === 'model')!;
     console.log(JSON.stringify(describeUnit(ev, unit), null, 1).slice(0, 3000));
     expect(ev.rosterCost()).toBeGreaterThan(0);
+
+    // Leader attachments: every leader/support unit picked above lists its valid bodyguards.
+    for (const r of ev.roots) {
+      for (const a of r.node.associations) {
+        const c = ev.associationCandidates(r, a);
+        console.log(`${r.sel.name} [${a.label || a.name}] → ${c.map((x) => x.sel.name).join(', ') || '(none)'}`);
+        if (c.length) {
+          r.sel.attachments = { ...(r.sel.attachments ?? {}), [a.id]: c[0].sel.uid };
+        }
+      }
+    }
+    ev = new Evaluator(index, roster);
+    for (const a of ev.attachments()) {
+      const infos = ev.visibleInfos(a.to!).map((i) => i.name);
+      console.log(`ATTACHED ${a.from.sel.name} → ${a.to?.sel.name}; bodyguard rules now: ${infos.join(', ')}`);
+    }
+    console.log(ev.validate().map((i) => i.message).join('\n'));
   });
 });

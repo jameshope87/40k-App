@@ -1,6 +1,17 @@
 import { type ReactNode, useState } from 'react';
 import type { Helper } from '../../play/rules';
-import { type GameState, type MoveKind, type UnitState, isHalfStrength, leadership, log } from '../../play/game';
+import {
+  type Formation,
+  type GameState,
+  type MoveKind,
+  type UnitState,
+  formationLeadership,
+  formationName,
+  formations,
+  isFormationDestroyed,
+  isFormationHalfStrength,
+  log,
+} from '../../play/game';
 import { rollDice, parseNum } from '../../play/dice';
 import { DiceFaces } from '../common';
 import { StatusPills } from './UnitPanel';
@@ -16,17 +27,29 @@ interface Props {
   openAttack: OpenAttack;
 }
 
-const alive = (u: UnitState) => u.modelsRemaining > 0;
+const alive = (f: Formation) => !isFormationDestroyed(f);
+const fname = (f: Formation) => formationName(f, unitLabel);
 
-function UnitLine({ u, children }: { u: UnitState; children?: ReactNode }) {
+/** Slowest Move characteristic in the formation (attached units move together). */
+function formationMove(f: Formation) {
+  const ms = f.members.filter((u) => u.modelsRemaining > 0).map((u) => parseNum(u.sheet.stats[0]?.M ?? '0'));
+  return ms.length ? Math.min(...ms) : 0;
+}
+
+function FormationLine({ f, children }: { f: Formation; children?: ReactNode }) {
+  const s = f.lead.sheet.stats[0];
   return (
     <div className="unit-row">
       <div className="grow">
         <div className="ellipsis">
-          <b>{unitLabel(u)}</b> <span className="tiny muted">M{u.sheet.stats[0]?.M ?? '?'} · Ld{u.sheet.stats[0]?.Ld ?? '?'} · OC{u.sheet.stats[0]?.OC ?? '?'}</span>
+          <b>{unitLabel(f.lead)}</b>
+          {f.members.length > 1 && <span className="small gold"> + {f.members.slice(1).map(unitLabel).join(' + ')}</span>}{' '}
+          <span className="tiny muted">
+            M{f.members.length > 1 ? `${formationMove(f)}"` : (s?.M ?? '?')} · Ld{formationLeadership(f)}+ · OC{s?.OC ?? '?'}
+          </span>
         </div>
         <div className="row" style={{ gap: 4 }}>
-          <StatusPills u={u} />
+          <StatusPills u={f.lead} />
         </div>
       </div>
       <div className="row">{children}</div>
@@ -34,8 +57,15 @@ function UnitLine({ u, children }: { u: UnitState; children?: ReactNode }) {
   );
 }
 
-function mutUnit(update: Update, side: number, uid: string, fn: (u: UnitState, g: GameState) => void) {
-  update((g) => fn(g.players[side].units.find((x) => x.uid === uid)!, g));
+/** Apply a change to every unit in a formation. */
+function mutFormation(update: Update, side: number, f: Formation, fn: (u: UnitState, g: GameState, isLead: boolean) => void) {
+  const uids = f.members.map((m) => m.uid);
+  update((g) => {
+    for (const uid of uids) {
+      const u = g.players[side].units.find((x) => x.uid === uid);
+      if (u) fn(u, g, uid === f.lead.uid);
+    }
+  });
 }
 
 function CpHelper({ game, update }: { game: GameState; update: Update }) {
@@ -62,35 +92,35 @@ function CpHelper({ game, update }: { game: GameState; update: Update }) {
 
 function BattleShockHelper({ game, update }: { game: GameState; update: Update }) {
   const side = game.activePlayer;
-  const units = game.players[side].units.filter((u) => alive(u) && !u.inReserves);
-  const needs = units.filter((u) => u.battleShocked || isHalfStrength(u));
+  const list = formations(game.players[side]).filter((f) => alive(f) && !f.lead.inReserves);
+  const needs = list.filter((f) => f.members.some((u) => u.battleShocked) || isFormationHalfStrength(f));
   const [rolls, setRolls] = useState<Record<string, number[]>>({});
   if (!needs.length) return <p className="small green">No units need a Battle-shock test this turn.</p>;
   return (
     <div>
-      {needs.map((u) => {
-        const ld = leadership(u);
-        const r = rolls[u.uid];
+      {needs.map((f) => {
+        const ld = formationLeadership(f);
+        const r = rolls[f.lead.uid];
         return (
-          <UnitLine key={u.uid} u={u}>
+          <FormationLine key={f.lead.uid} f={f}>
             {r && <DiceFaces dice={r} />}
             <button
               className="small"
               disabled={!!r}
               onClick={() => {
                 const dice = rollDice(2);
-                setRolls({ ...rolls, [u.uid]: dice });
+                setRolls({ ...rolls, [f.lead.uid]: dice });
                 const total = dice[0] + dice[1];
                 const pass = total >= ld;
-                mutUnit(update, side, u.uid, (x, g) => {
+                mutFormation(update, side, f, (x, g, isLead) => {
                   x.battleShocked = !pass;
-                  log(g, `${unitLabel(u)} Battle-shock test: rolled ${total} vs Ld ${ld}+ → ${pass ? 'passed' : 'FAILED (Battle-shocked)'}.`);
+                  if (isLead) log(g, `${fname(f)} Battle-shock test: rolled ${total} vs Ld ${ld}+ → ${pass ? 'passed' : 'FAILED (Battle-shocked)'}.`);
                 });
               }}
             >
               {r ? (r[0] + r[1] >= ld ? `✓ ${r[0] + r[1]} passed` : `✗ ${r[0] + r[1]} failed`) : `Test 2D6 vs ${ld}+`}
             </button>
-          </UnitLine>
+          </FormationLine>
         );
       })}
     </div>
@@ -99,32 +129,30 @@ function BattleShockHelper({ game, update }: { game: GameState; update: Update }
 
 function MoveHelper({ game, update }: { game: GameState; update: Update }) {
   const side = game.activePlayer;
-  const units = game.players[side].units.filter((u) => alive(u) && !u.inReserves);
-  const set = (u: UnitState, moved: MoveKind) =>
-    mutUnit(update, side, u.uid, (x, g) => {
+  const list = formations(game.players[side]).filter((f) => alive(f) && !f.lead.inReserves);
+  const set = (f: Formation, moved: MoveKind) => {
+    const roll = moved === 'advance' ? rollDice(1)[0] : undefined;
+    mutFormation(update, side, f, (x, g, isLead) => {
       x.moved = moved;
-      x.advanceRoll = undefined;
-      if (moved === 'advance') {
-        const r = rollDice(1)[0];
-        x.advanceRoll = r;
-        log(g, `${unitLabel(u)} Advanced: rolled ${r} → can move up to ${parseNum(u.sheet.stats[0]?.M ?? '0') + r}".`);
-      } else if (moved === 'fallback') {
-        log(g, `${unitLabel(u)} Fell Back.`);
-      }
+      x.advanceRoll = roll;
+      if (!isLead) return;
+      if (moved === 'advance') log(g, `${fname(f)} Advanced: rolled ${roll} → can move up to ${formationMove(f) + (roll ?? 0)}".`);
+      else if (moved === 'fallback') log(g, `${fname(f)} Fell Back.`);
     });
-  if (!units.length) return <p className="small muted">No units on the battlefield.</p>;
+  };
+  if (!list.length) return <p className="small muted">No units on the battlefield.</p>;
   return (
     <div>
-      {units.map((u) => (
-        <UnitLine key={u.uid} u={u}>
-          <select value={u.moved === 'ingress' ? 'none' : u.moved} onChange={(e) => set(u, e.target.value as MoveKind)} aria-label={`Move for ${unitLabel(u)}`}>
+      {list.map((f) => (
+        <FormationLine key={f.lead.uid} f={f}>
+          <select value={f.lead.moved === 'ingress' ? 'none' : f.lead.moved} onChange={(e) => set(f, e.target.value as MoveKind)} aria-label={`Move for ${fname(f)}`}>
             <option value="none">Not moved yet</option>
             <option value="stationary">Remain stationary</option>
-            <option value="normal">Normal move ({u.sheet.stats[0]?.M ?? '?'})</option>
+            <option value="normal">Normal move ({formationMove(f)}")</option>
             <option value="advance">Advance (roll D6)</option>
             <option value="fallback">Fall back</option>
           </select>
-        </UnitLine>
+        </FormationLine>
       ))}
     </div>
   );
@@ -132,44 +160,48 @@ function MoveHelper({ game, update }: { game: GameState; update: Update }) {
 
 function ReservesHelper({ game, update }: { game: GameState; update: Update }) {
   const side = game.activePlayer;
-  const units = game.players[side].units.filter((u) => alive(u) && u.inReserves);
-  if (!units.length) return <p className="small muted">No units in reserves. Mark units as “In reserves” during deployment or from the army panel.</p>;
+  const list = formations(game.players[side]).filter((f) => alive(f) && f.lead.inReserves);
+  if (!list.length) return <p className="small muted">No units in reserves. Mark units as “In reserves” during deployment or from the army panel.</p>;
   return (
     <div>
       {game.round >= 3 && <p className="small gold">Strategic Reserves that haven’t arrived by the end of battle round 3 count as destroyed.</p>}
-      {units.map((u) => (
-        <UnitLine key={u.uid} u={u}>
+      {list.map((f) => (
+        <FormationLine key={f.lead.uid} f={f}>
           <button
             className="small"
             onClick={() =>
-              mutUnit(update, side, u.uid, (x, g) => {
+              mutFormation(update, side, f, (x, g, isLead) => {
                 x.inReserves = false;
                 x.moved = 'ingress';
-                log(g, `${unitLabel(u)} arrived from reserves.`);
+                if (isLead) log(g, `${fname(f)} arrived from reserves.`);
               })
             }
           >
             Arrive (ingress)
           </button>
-        </UnitLine>
+        </FormationLine>
       ))}
     </div>
   );
 }
 
 function AttackList({ game, side, kind, openAttack }: { game: GameState; side: 0 | 1; kind: 'ranged' | 'melee'; openAttack: OpenAttack }) {
-  const units = game.players[side].units.filter((u) => alive(u) && !u.inReserves && u.sheet.weapons.some((w) => w.kind === kind));
-  if (!units.length) return <p className="small muted">{game.players[side].name} has no units that can make {kind} attacks.</p>;
+  const list = formations(game.players[side]).filter(
+    (f) => alive(f) && !f.lead.inReserves && f.members.some((u) => u.modelsRemaining > 0 && u.sheet.weapons.some((w) => w.kind === kind)),
+  );
+  if (!list.length) return <p className="small muted">{game.players[side].name} has no units that can make {kind} attacks.</p>;
   return (
     <div>
-      {units.map((u) => {
+      {list.map((f) => {
+        const u = f.lead;
         const blocked = kind === 'ranged' && u.moved === 'fallback';
+        const done = kind === 'ranged' ? u.shot : u.fought;
         return (
-          <UnitLine key={u.uid} u={u}>
-            <button className={`small ${(kind === 'ranged' ? u.shot : u.fought) ? '' : 'primary'}`} onClick={() => openAttack(side, u.uid, kind)} title={blocked ? 'Fell back this turn' : undefined}>
-              {kind === 'ranged' ? (u.shot ? 'Shoot again' : blocked ? 'Shoot (fell back!)' : 'Shoot') : u.fought ? 'Fight again' : 'Fight'}
+          <FormationLine key={u.uid} f={f}>
+            <button className={`small ${done ? '' : 'primary'}`} onClick={() => openAttack(side, u.uid, kind)} title={blocked ? 'Fell back this turn' : undefined}>
+              {kind === 'ranged' ? (done ? 'Shoot again' : blocked ? 'Shoot (fell back!)' : 'Shoot') : done ? 'Fight again' : 'Fight'}
             </button>
-          </UnitLine>
+          </FormationLine>
         );
       })}
     </div>
@@ -178,15 +210,16 @@ function AttackList({ game, side, kind, openAttack }: { game: GameState; side: 0
 
 function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
   const side = game.activePlayer;
-  const units = game.players[side].units.filter((u) => alive(u) && !u.inReserves);
+  const list = formations(game.players[side]).filter((f) => alive(f) && !f.lead.inReserves);
   const [rolls, setRolls] = useState<Record<string, number[]>>({});
   return (
     <div>
-      {units.map((u) => {
+      {list.map((f) => {
+        const u = f.lead;
         const cannot = u.moved === 'advance' || u.moved === 'fallback';
         const r = rolls[u.uid];
         return (
-          <UnitLine key={u.uid} u={u}>
+          <FormationLine key={u.uid} f={f}>
             {r && (
               <>
                 <DiceFaces dice={r} />
@@ -204,10 +237,10 @@ function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
                   <button
                     className={`small ${u.charged ? '' : 'primary'}`}
                     onClick={() =>
-                      mutUnit(update, side, u.uid, (x, g) => {
-                        x.charged = !x.charged;
+                      mutFormation(update, side, f, (x, g, isLead) => {
+                        x.charged = !u.charged;
                         x.chargeRoll = r[0] + r[1];
-                        if (x.charged) log(g, `${unitLabel(u)} charged (${r[0] + r[1]}").`);
+                        if (isLead && x.charged) log(g, `${fname(f)} charged (${r[0] + r[1]}").`);
                       })
                     }
                   >
@@ -216,7 +249,7 @@ function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
                 )}
               </>
             )}
-          </UnitLine>
+          </FormationLine>
         );
       })}
     </div>
@@ -255,19 +288,20 @@ function ScoreHelper({ game, update }: { game: GameState; update: Update }) {
 }
 
 function DeployHelper({ game, update }: { game: GameState; update: Update }) {
+  const hasRule = (f: Formation, re: RegExp) => f.members.every((u) => u.sheet.rules.some((r) => re.test(r.name)));
   return (
     <div className="grid2">
       {game.players.map((p, side) => (
         <div key={side}>
           <b className="small">{p.name}: units starting in reserves</b>
           {!p.units.length && <p className="tiny muted">No list loaded.</p>}
-          {p.units.map((u) => (
-            <label key={u.uid} className="opt small">
-              <input type="checkbox" checked={u.inReserves} onChange={(e) => mutUnit(update, side, u.uid, (x) => (x.inReserves = e.target.checked))} />
-              <span className="name">{unitLabel(u)}</span>
-              {u.sheet.rules.some((r) => /deep strike/i.test(r.name)) && <span className="pill">Deep Strike</span>}
-              {u.sheet.rules.some((r) => /infiltrators/i.test(r.name)) && <span className="pill">Infiltrators</span>}
-              {u.sheet.rules.some((r) => /scouts/i.test(r.name)) && <span className="pill">Scouts</span>}
+          {formations(p).map((f) => (
+            <label key={f.lead.uid} className="opt small">
+              <input type="checkbox" checked={f.lead.inReserves} onChange={(e) => mutFormation(update, side, f, (x) => (x.inReserves = e.target.checked))} />
+              <span className="name">{fname(f)}</span>
+              {hasRule(f, /deep strike/i) && <span className="pill">Deep Strike</span>}
+              {hasRule(f, /infiltrators/i) && <span className="pill">Infiltrators</span>}
+              {hasRule(f, /scouts/i) && <span className="pill">Scouts</span>}
             </label>
           ))}
         </div>
@@ -298,8 +332,33 @@ function FirstTurnHelper({ game, update }: { game: GameState; update: Update }) 
   );
 }
 
+function MusterHelper({ game }: { game: GameState }) {
+  const attached = game.players.flatMap((p) => formations(p).filter((f) => f.members.length > 1).map((f) => ({ p, f })));
+  return (
+    <div className="small">
+      {attached.length ? (
+        <>
+          <b>Attached units</b>
+          <ul className="summary-list">
+            {attached.map(({ p, f }) => (
+              <li key={f.lead.uid}>
+                {p.name}: {fname(f)}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="muted">No Leader or Support units are attached yet.</p>
+      )}
+      <p className="muted">Attach units in the army list editor, or here from the Armies tab (tap a unit → “Attached to”).</p>
+    </div>
+  );
+}
+
 export default function StepHelper({ helper, game, update, openAttack }: Props) {
   switch (helper) {
+    case 'muster':
+      return <MusterHelper game={game} />;
     case 'cp':
       return <CpHelper game={game} update={update} />;
     case 'battleshock':
@@ -337,4 +396,3 @@ export default function StepHelper({ helper, game, update, openAttack }: Props) 
       return null;
   }
 }
-

@@ -31,6 +31,23 @@ export function removeSelection(roster: Roster, selUid: string): Roster {
   return edit(roster, (s) => {
     const f = findSelection(s, selUid);
     if (f) f.parentList.splice(f.parentList.indexOf(f.sel), 1);
+    // Detach anything that was attached to the removed unit.
+    for (const root of s) {
+      if (!root.attachments) continue;
+      for (const [k, v] of Object.entries(root.attachments)) if (v === selUid) delete root.attachments[k];
+    }
+  });
+}
+
+/** Attach a root selection to another unit through one of its associations (or detach with null). */
+export function setAttachment(roster: Roster, selUid: string, associationId: string, targetUid: string | null): Roster {
+  return edit(roster, (s) => {
+    const sel = s.find((x) => x.uid === selUid);
+    if (!sel) return;
+    const next = { ...(sel.attachments ?? {}) };
+    if (targetUid) next[associationId] = targetUid;
+    else delete next[associationId];
+    sel.attachments = Object.keys(next).length ? next : undefined;
   });
 }
 
@@ -102,11 +119,13 @@ export function rosterToText(ev: Evaluator, roster: Roster, index: GameIndex): s
       sub(c, depth + 1);
     }
   };
+  const label = (r: RSel) => (r.sel.customName ? `${r.sel.customName} (${ev.nameOf(r.node, r)})` : ev.nameOf(r.node, r));
+  const attachments = ev.attachments();
   for (const r of ev.roots) {
     const pts = ev.totalCost(r);
     const cat = r.node.primaryCategoryId ? index.categoryName(r.node.primaryCategoryId) : '';
-    lines.push(`${r.sel.customName ? `${r.sel.customName} (${ev.nameOf(r.node, r)})` : ev.nameOf(r.node, r)}${pts ? ` [${pts} pts]` : ''}${cat && cat !== 'Configuration' ? ` — ${cat}` : ''}`);
-    sub(r, 1);
+    lines.push(`${label(r)}${pts ? ` [${pts} pts]` : ''}${cat && cat !== 'Configuration' ? ` — ${cat}` : ''}`);
+    for (const a of attachments) if (a.from === r && a.to) lines.push(`  ↳ Attached to ${label(a.to)} (${a.label})`);
     lines.push('');
   }
   return lines.join('\n');

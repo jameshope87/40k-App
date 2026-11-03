@@ -26,6 +26,10 @@ export interface UnitState {
   fought: boolean;
   usedOneShot: string[];
   notes?: string;
+  /** Uid of the bodyguard unit this Leader / Support unit is attached to. */
+  attachedTo?: string;
+  /** How it is attached, e.g. "Leader" or "Supported by". */
+  attachedAs?: string;
 }
 
 export interface PlayerState {
@@ -108,6 +112,63 @@ export function newGame(p1: PlayerState, p2: PlayerState): GameState {
 
 export function isDestroyed(u: UnitState) {
   return u.modelsRemaining <= 0;
+}
+
+/**
+ * An attached unit: a bodyguard plus the Leader / Support units attached to it,
+ * or a unit on its own. Once the bodyguard is destroyed, its leaders carry on
+ * as separate units.
+ */
+export interface Formation {
+  lead: UnitState;
+  /** The lead unit first, then attached units. */
+  members: UnitState[];
+}
+
+/** The bodyguard a unit is currently attached to (if it is still alive). */
+export function bodyguardOf(p: PlayerState, u: UnitState): UnitState | undefined {
+  if (!u.attachedTo) return undefined;
+  const bg = p.units.find((x) => x.uid === u.attachedTo);
+  return bg && !isDestroyed(bg) && bg !== u ? bg : undefined;
+}
+
+export function formations(p: PlayerState): Formation[] {
+  const out: Formation[] = [];
+  for (const u of p.units) {
+    if (bodyguardOf(p, u)) continue;
+    const members = [u, ...(isDestroyed(u) ? [] : p.units.filter((x) => x !== u && bodyguardOf(p, x) === u))];
+    out.push({ lead: u, members });
+  }
+  return out;
+}
+
+export function formationOf(p: PlayerState, u: UnitState): Formation {
+  const lead = bodyguardOf(p, u) ?? u;
+  return formations(p).find((f) => f.lead === lead) ?? { lead: u, members: [u] };
+}
+
+export function formationName(f: Formation, label: (u: UnitState) => string = (u) => u.sheet.customName || u.sheet.name) {
+  return f.members.map(label).join(' + ');
+}
+
+export function isFormationDestroyed(f: Formation) {
+  return f.members.every(isDestroyed);
+}
+
+/** Half-strength check for an attached unit, counting every model in it. */
+export function isFormationHalfStrength(f: Formation) {
+  const alive = f.members.filter((u) => !isDestroyed(u));
+  if (!alive.length) return false;
+  if (f.members.length === 1) return isHalfStrength(f.lead);
+  const start = f.members.reduce((s, u) => s + u.startingModels, 0);
+  const left = f.members.reduce((s, u) => s + u.modelsRemaining, 0);
+  return left * 2 <= start;
+}
+
+/** Best (lowest) Leadership among the living models of a formation. */
+export function formationLeadership(f: Formation) {
+  const alive = f.members.filter((u) => !isDestroyed(u));
+  return Math.min(...(alive.length ? alive : f.members).map(leadership));
 }
 
 export function totalWoundsRemaining(u: UnitState) {

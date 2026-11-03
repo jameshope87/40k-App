@@ -10,7 +10,7 @@
  *    primary-catalogue / ancestor-by-id
  *  - min/max constraints on selections and costs
  */
-import type { RawCondition, RawConditionGroup, RawConstraint, RawForceEntry, RawRepeat } from './types';
+import type { RawAssociation, RawCondition, RawConditionGroup, RawConstraint, RawForceEntry, RawRepeat } from './types';
 import { type FlatModifier, type GameIndex, type InfoItem, type Node, findChildNode, groupEntries } from './index';
 import { type Force, type Roster, type Selection, uid } from '../roster/model';
 
@@ -29,6 +29,17 @@ export interface RSel {
 const FORCE = Symbol('force');
 const PRIMARY_CATALOGUE = Symbol('primary-catalogue');
 type ScopeTarget = RSel | typeof FORCE | typeof PRIMARY_CATALOGUE | null;
+
+/** An attachment made by a root selection through one of its associations. */
+export interface Attachment {
+  from: RSel;
+  association: RawAssociation;
+  /** Label for the relationship, e.g. "Leader" or "Supported by". */
+  label: string;
+  to?: RSel;
+  /** Uid stored in the roster (may point at a removed unit). */
+  targetUid: string;
+}
 
 export interface Issue {
   severity: 'error' | 'warning';
@@ -256,6 +267,10 @@ export class Evaluator {
       walk(this.scopeChildren(target), 1);
       return total;
     }
+    if (field === 'associations') {
+      if (!target || typeof target !== 'object') return 0;
+      return this.associatedWith(this.rootOf(target)).filter((r) => this.matches(r, childId)).length;
+    }
     if (field === 'forces') {
       if (!childId || childId === 'any') return 1;
       return this.forceEntry?.id === childId ? 1 : 0;
@@ -302,6 +317,53 @@ export class Evaluator {
       times += (r.roundUp ? Math.ceil(ratio) : Math.floor(ratio)) * (num(r.repeats) || 1);
     }
     return times;
+  }
+
+  // ---- associations (Leader / Support attachments) ------------------------
+
+  rootOf(r: RSel): RSel {
+    let cur = r;
+    while (cur.parent) cur = cur.parent;
+    return cur;
+  }
+
+  /** All attachments in the army, resolved. */
+  attachments(): Attachment[] {
+    return this.cached('attachments', () => {
+      const out: Attachment[] = [];
+      for (const from of this.roots) {
+        for (const [assocId, targetUid] of Object.entries(from.sel.attachments ?? {})) {
+          const association = from.node.associations.find((a) => a.id === assocId);
+          if (!association || !targetUid) continue;
+          out.push({ from, association, label: association.label || association.name, targetUid, to: this.roots.find((r) => r.sel.uid === targetUid) });
+        }
+      }
+      return out;
+    });
+  }
+
+  /** Units joined to `r` in either direction (leaders attached to it, or the unit it is attached to). */
+  associatedWith(r: RSel): RSel[] {
+    const out: RSel[] = [];
+    for (const a of this.attachments()) {
+      if (!a.to) continue;
+      if (a.to === r) out.push(a.from);
+      else if (a.from === r) out.push(a.to);
+    }
+    return out;
+  }
+
+  /** Units that `from` may attach to through `association`. */
+  associationCandidates(from: RSel, association: RawAssociation): RSel[] {
+    const kind = association.childId ?? 'unit';
+    return this.roots.filter((r) => {
+      if (r === from) return false;
+      const type = r.node.type;
+      if (kind === 'unit' && type !== 'unit' && type !== 'model') return false;
+      if (kind === 'model-or-unit' && type !== 'unit' && type !== 'model') return false;
+      if (kind !== 'unit' && kind !== 'model-or-unit' && !this.matches(r, kind)) return false;
+      return this.evalConditions(association.conditions, association.conditionGroups, r);
+    });
   }
 
   // ---- constraints ---------------------------------------------------------
@@ -389,7 +451,7 @@ export class Evaluator {
   ) {
     const limit = this.constraintValue(c, mods, self);
     if (c.type === 'max' && limit < 0) return;
-    const isCost = c.field !== 'selections';
+    const isCost = c.field !== 'selections' && c.field !== 'associations';
     if (isCost && c.type === 'max' && limit === 0 && c.field === this.index.ptsTypeId) return; // no limit set
     const have = measure();
     const ok = c.type === 'min' ? have >= limit : c.type === 'max' ? have <= limit : true;
@@ -431,6 +493,14 @@ export class Evaluator {
       if (!selected.length && this.isHidden(node, self)) continue;
       for (const c of node.constraints) {
         if (c.field === 'selections' && c.scope === 'self') continue;
+        if (c.scope === 'self') {
+          // Per-selection limits, e.g. "max 1 Leader attached" on a bodyguard unit.
+          for (const r of selected) {
+            const label = c.field === 'associations' ? `${r.sel.customName || this.nameOf(node, r)}: attached ${c.childId ? this.index.categoryName(c.childId) : 'units'}` : this.nameOf(node, r);
+            this.checkConstraint(c, node.modifiers, label, () => this.measure(c.field, c.childId, r, true), r, issues, r.sel.uid);
+          }
+          continue;
+        }
         const tgt = c.scope === 'parent' ? FORCE : this.resolveScope(c.scope, self);
         if (c.field === 'selections' && tgt !== FORCE) continue;
         if (c.field !== 'selections' && !selected.length) continue;
@@ -443,6 +513,23 @@ export class Evaluator {
           issues,
           selected[0]?.sel.uid,
         );
+      }
+    }
+
+    // Leader / Support attachments.
+    for (const r of this.roots) {
+      for (const assoc of r.node.associations) {
+        const label = assoc.label || assoc.name;
+        const made = this.attachments().filter((a) => a.from === r && a.association === assoc);
+        const name = r.sel.customName || this.nameOf(r.node, r);
+        for (const a of made) {
+          if (!a.to) issues.push({ severity: 'warning', message: `${name}: the unit it was attached to has been removed.`, selUid: r.sel.uid });
+          else if (!this.associationCandidates(r, assoc).includes(a.to))
+            issues.push({ severity: 'error', message: `${name} cannot be attached to ${a.to.sel.customName || this.nameOf(a.to.node, a.to)}.`, selUid: r.sel.uid });
+        }
+        const count = made.filter((a) => a.to).length;
+        const min = num(assoc.min);
+        if (count < min) issues.push({ severity: 'error', message: `${name} must be attached to a unit (${label}).`, selUid: r.sel.uid });
       }
     }
 

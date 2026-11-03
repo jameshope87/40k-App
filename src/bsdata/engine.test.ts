@@ -13,7 +13,13 @@ const gst: RawDataFile = {
   name: 'Test System',
   type: 'gameSystem',
   costTypes: [{ id: PTS, name: 'pts' }],
-  categoryEntries: [{ id: 'cat-char', name: 'Character' }, { id: 'cat-bl', name: 'Battleline' }],
+  categoryEntries: [
+    { id: 'cat-char', name: 'Character' },
+    { id: 'cat-bl', name: 'Battleline' },
+    { id: 'cat-leader', name: 'Leader' },
+    { id: 'cat-support', name: 'Support' },
+  ],
+  sharedRules: [{ id: 'rule-fnp', name: 'Feel No Pain', description: 'Ignore wounds.' }],
   forceEntries: [
     {
       id: 'force',
@@ -36,6 +42,19 @@ const cat: RawDataFile = {
       type: 'unit',
       categoryLinks: [{ targetId: 'cat-bl', primary: true }],
       costs: [{ typeId: PTS, value: 80 }],
+      constraints: [{ id: 'one-leader', field: 'associations', scope: 'self', type: 'max', value: 1, childId: 'cat-leader' }],
+      infoLinks: [
+        {
+          id: 'il-fnp',
+          name: 'Feel No Pain',
+          targetId: 'rule-fnp',
+          type: 'rule',
+          modifiers: [
+            { type: 'append', field: 'name', value: '5+' },
+            { type: 'set', field: 'hidden', value: true, conditions: [{ type: 'lessThan', field: 'associations', scope: 'self', childId: 'medic', value: 1 }] },
+          ],
+        },
+      ],
       modifiers: [
         {
           type: 'set',
@@ -94,9 +113,42 @@ const cat: RawDataFile = {
       id: 'hero',
       name: 'Hero',
       type: 'model',
-      categoryLinks: [{ targetId: 'cat-char', primary: true }],
+      categoryLinks: [{ targetId: 'cat-char', primary: true }, { targetId: 'cat-leader' }],
       costs: [{ typeId: PTS, value: 60 }],
+      associations: [
+        {
+          id: 'assoc-lead',
+          name: 'Leading',
+          label: 'Leader',
+          action: 'group',
+          childId: 'unit',
+          min: 0,
+          max: 1,
+          scope: 'force',
+          conditionGroups: [{ type: 'or', conditions: [{ type: 'instanceOf', field: 'selections', scope: 'self', childId: 'squad', value: 1 }] }],
+        },
+      ],
       constraints: [{ id: 'hero-max', field: 'selections', scope: 'roster', type: 'max', value: 1, includeChildSelections: true }],
+    },
+    {
+      id: 'medic',
+      name: 'Medic',
+      type: 'model',
+      categoryLinks: [{ targetId: 'cat-char', primary: true }, { targetId: 'cat-support' }],
+      costs: [{ typeId: PTS, value: 40 }],
+      associations: [
+        {
+          id: 'assoc-support',
+          name: 'Supporting',
+          label: 'Supported by',
+          action: 'group',
+          childId: 'unit',
+          min: 1,
+          max: 1,
+          scope: 'force',
+          conditions: [{ type: 'instanceOf', field: 'selections', scope: 'self', childId: 'cat-bl', value: 1 }],
+        },
+      ],
     },
     {
       id: 'secret',
@@ -110,6 +162,7 @@ const cat: RawDataFile = {
     { id: 'l-squad', name: 'Squad', targetId: 'squad', type: 'selectionEntry' },
     { id: 'l-hero', name: 'Hero', targetId: 'hero', type: 'selectionEntry' },
     { id: 'l-secret', name: 'Secret', targetId: 'secret', type: 'selectionEntry' },
+    { id: 'l-medic', name: 'Medic', targetId: 'medic', type: 'selectionEntry' },
   ],
 };
 
@@ -160,6 +213,44 @@ describe('engine', () => {
     expect(msgs).toMatch(/Hero: allows at most 1/);
     expect(msgs).toMatch(/5-10 Troopers: allows at most 10/);
     expect(msgs).toMatch(/pts cannot exceed 200/);
+  });
+});
+
+describe('leader attachments', () => {
+  const index = new GameIndex(gst, cat, () => undefined);
+  const node = (name: string) => index.rootNodes.find((n) => n.name === name)!;
+
+  it('finds valid bodyguards, enforces limits and unlocks abilities', () => {
+    const r = roster();
+    let ev = new Evaluator(index, r);
+    const sels = r.forces[0].selections;
+    sels.push(ev.createSelection(node('Squad'), null), ev.createSelection(node('Hero'), null), ev.createSelection(node('Hero'), null), ev.createSelection(node('Medic'), null));
+    const [squad, hero1, hero2, medic] = sels;
+    ev = new Evaluator(index, r);
+    const heroR = ev.roots.find((x) => x.sel.uid === hero1.uid)!;
+    const candidates = ev.associationCandidates(heroR, heroR.node.associations[0]);
+    expect(candidates.map((c) => c.sel.name)).toEqual(['Squad']);
+    expect(ev.validate().map((i) => i.message).join('|')).toMatch(/Medic must be attached/);
+
+    const squadR = () => ev.roots.find((x) => x.sel.uid === squad.uid)!;
+    const fnpVisible = () => ev.visibleInfos(squadR()).some((i) => i.name === 'Feel No Pain 5+');
+    expect(fnpVisible()).toBe(false);
+
+    hero1.attachments = { 'assoc-lead': squad.uid };
+    medic.attachments = { 'assoc-support': squad.uid };
+    ev = new Evaluator(index, r);
+    expect(fnpVisible()).toBe(true);
+    expect(ev.associatedWith(squadR()).map((x) => x.sel.name).sort()).toEqual(['Hero', 'Medic']);
+    expect(ev.validate().map((i) => i.message).join('|')).not.toMatch(/attached Leader|must be attached/);
+
+    hero2.attachments = { 'assoc-lead': squad.uid };
+    ev = new Evaluator(index, r);
+    expect(ev.validate().map((i) => i.message).join('|')).toMatch(/Squad: attached Leader: allows at most 1 \(currently 2\)/);
+
+    // Attaching to an invalid target is reported.
+    hero2.attachments = { 'assoc-lead': medic.uid };
+    ev = new Evaluator(index, r);
+    expect(ev.validate().map((i) => i.message).join('|')).toMatch(/Hero cannot be attached to Medic/);
   });
 });
 

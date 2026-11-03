@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { GameState, UnitState } from '../../play/game';
-import { adjustWounds, isHalfStrength, log, totalWoundsRemaining } from '../../play/game';
+import { adjustWounds, bodyguardOf, formations, isHalfStrength, log, totalWoundsRemaining } from '../../play/game';
 import { Modal } from '../common';
 import Datasheet from '../Datasheet';
 import { unitLabel } from './abilities';
@@ -31,8 +31,11 @@ export function HealthBar({ u }: { u: UnitState }) {
 }
 
 export function UnitDetail({ game, side, uid, onClose, update }: { game: GameState; side: 0 | 1; uid: string; onClose: () => void; update: (fn: (g: GameState) => void) => void }) {
-  const u = game.players[side].units.find((x) => x.uid === uid);
+  const player = game.players[side];
+  const u = player.units.find((x) => x.uid === uid);
   if (!u) return null;
+  const bodyguard = bodyguardOf(player, u);
+  const attachedHere = player.units.filter((x) => bodyguardOf(player, x) === u);
   const mut = (fn: (x: UnitState) => void, msg?: string) =>
     update((g) => {
       const t = g.players[side].units.find((x) => x.uid === uid)!;
@@ -80,6 +83,35 @@ export function UnitDetail({ game, side, uid, onClose, update }: { game: GameSta
             Mark destroyed
           </button>
         </div>
+        {!attachedHere.length && (
+          <label className="field" style={{ marginTop: 8 }}>
+            <span>Attached to (Leader / Support)</span>
+            <select
+              value={bodyguard?.uid ?? ''}
+              onChange={(e) => {
+                const target = player.units.find((x) => x.uid === e.target.value);
+                mut((x) => {
+                  x.attachedTo = target?.uid;
+                  x.attachedAs = target ? (x.attachedAs ?? 'Leader') : undefined;
+                }, target ? `${unitLabel(u)} attached to ${unitLabel(target)}.` : `${unitLabel(u)} detached.`);
+              }}
+            >
+              <option value="">— Not attached —</option>
+              {player.units
+                .filter((x) => x !== u && x.modelsRemaining > 0 && !x.attachedTo)
+                .map((x) => (
+                  <option key={x.uid} value={x.uid}>
+                    {unitLabel(x)}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        {!!attachedHere.length && (
+          <p className="small" style={{ marginTop: 8 }}>
+            <b>Attached:</b> {attachedHere.map(unitLabel).join(', ')}
+          </p>
+        )}
         <label className="field" style={{ marginTop: 8 }}>
           <span>Notes</span>
           <input value={u.notes ?? ''} onChange={(e) => mut((x) => (x.notes = e.target.value))} placeholder="e.g. attached to…, objective held" />
@@ -102,10 +134,19 @@ export function ArmyPanel({ game, update }: { game: GameState; update: (fn: (g: 
             {p.name} <span className="small muted">{p.armyName}</span>
           </h3>
           {!p.units.length && <p className="small muted">No list loaded.</p>}
-          {p.units.map((u) => (
-            <div key={u.uid} className={`unit-row ${u.modelsRemaining <= 0 ? 'dead' : ''}`} onClick={() => setDetail({ side: side as 0 | 1, uid: u.uid })} style={{ cursor: 'pointer' }}>
+          {formations(p).flatMap((f) => f.members).map((u) => (
+            <div
+              key={u.uid}
+              className={`unit-row ${u.modelsRemaining <= 0 ? 'dead' : ''}`}
+              onClick={() => setDetail({ side: side as 0 | 1, uid: u.uid })}
+              style={{ cursor: 'pointer', paddingLeft: bodyguardOf(p, u) ? 18 : 0, borderBottomStyle: p.units.some((x) => bodyguardOf(p, x) === u) ? 'dashed' : undefined }}
+            >
               <div className="grow">
-                <div className="ellipsis">{unitLabel(u)}</div>
+                <div className="ellipsis">
+                  {bodyguardOf(p, u) && <span className="gold">↳ </span>}
+                  {unitLabel(u)}
+                  {bodyguardOf(p, u) && <span className="tiny muted"> ({u.attachedAs ?? 'attached'})</span>}
+                </div>
                 <div className="row" style={{ gap: 4 }}>
                   <StatusPills u={u} />
                 </div>

@@ -3,6 +3,7 @@
  * tree of `Node`s, following entry links and merging link overrides.
  */
 import type {
+  RawAssociation,
   RawCondition,
   RawConditionGroup,
   RawConstraint,
@@ -53,6 +54,8 @@ export interface Node {
   sortIndex?: number;
   infos: InfoItem[];
   children: Node[];
+  /** Unit-to-unit associations (Leader / Support attachments). */
+  associations: RawAssociation[];
 }
 
 export function flattenModifiers(mods?: RawModifier[], groups?: RawModifierGroup[], guards: RawConditionGroup[] = []): FlatModifier[] {
@@ -194,6 +197,7 @@ export class GameIndex {
       categoryIds: catLinks.map((c) => c.targetId),
       primaryCategoryId: primary?.targetId,
       defaultSelectionEntryId: link?.defaultSelectionEntryId ?? target.defaultSelectionEntryId,
+      associations: [...(target.associations ?? []), ...(link?.associations ?? [])].filter((a) => a.action === 'group'),
       sortIndex: (link as { sortIndex?: number } | undefined)?.sortIndex ?? (target as { sortIndex?: number }).sortIndex,
       get infos(): InfoItem[] {
         const value = [...index.infoItems(target), ...(link ? index.infoItems(link) : [])];

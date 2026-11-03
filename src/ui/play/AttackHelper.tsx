@@ -24,7 +24,7 @@ import {
 } from '../../play/attack';
 import { parseNum, parseTarget } from '../../play/dice';
 import type { GameState, UnitState } from '../../play/game';
-import { applyDamage, log } from '../../play/game';
+import { applyDamage, formationName, formationOf, formations, log } from '../../play/game';
 import type { WeaponProfile } from '../../roster/summary';
 import { parseFnp, unitLabel } from './abilities';
 
@@ -100,13 +100,19 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
   const defenderSide = attackerSide === 0 ? 1 : 0;
   const defender = game.players[defenderSide];
   const attacker = attackerPlayer.units.find((u) => u.uid === attackerUid)!;
-  const weapons = attacker.sheet.weapons.filter((w) => w.kind === kind);
+  // An attached unit (bodyguard + leaders) attacks together.
+  const formation = formationOf(attackerPlayer, attacker);
+  const attackerName = formationName(formation, unitLabel);
+  const weapons: { w: WeaponProfile; m: UnitState }[] = formation.members
+    .filter((m) => m.modelsRemaining > 0)
+    .flatMap((m) => m.sheet.weapons.filter((w) => w.kind === kind).map((w) => ({ w, m })));
   const advanced = attacker.moved === 'advance';
 
-  const [wIdx, setWIdx] = useState(() => Math.max(0, weapons.findIndex((w) => !advanced || parseAbilities(w.keywords).torrent || w.keywords.some((k) => /assault/i.test(k)))));
-  const weapon: WeaponProfile | undefined = weapons[wIdx];
-  const scaled = (w?: WeaponProfile) => (w ? Math.max(1, Math.round((w.count * attacker.modelsRemaining) / Math.max(1, attacker.startingModels))) : 1);
-  const [targetUid, setTargetUid] = useState<string>(() => defender.units.find((u) => u.modelsRemaining > 0)?.uid ?? 'custom');
+  const [wIdx, setWIdx] = useState(() => Math.max(0, weapons.findIndex(({ w }) => !advanced || parseAbilities(w.keywords).torrent || w.keywords.some((k) => /assault/i.test(k)))));
+  const weapon: WeaponProfile | undefined = weapons[wIdx]?.w;
+  const scaled = (o?: { w: WeaponProfile; m: UnitState }) => (o ? Math.max(1, Math.round((o.w.count * o.m.modelsRemaining) / Math.max(1, o.m.startingModels))) : 1);
+  const defenderGroups = formations(defender).filter((f) => f.members.some((u) => u.modelsRemaining > 0));
+  const [targetUid, setTargetUid] = useState<string>(() => defenderGroups.find((f) => f.lead.modelsRemaining > 0)?.lead.uid ?? 'custom');
   const [custom, setCustom] = useState<TargetProfile>(CUSTOM);
   const [opts, setOpts] = useState<AttackOptions>(() => ({
     ...defaultOptions(scaled(weapons[0])),
@@ -131,7 +137,7 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
     return (
       <Modal onClose={onClose} title="Attack">
         <p>
-          {unitLabel(attacker)} has no {kind} weapons in its datasheet.
+          {attackerName} has no {kind} weapons in its datasheet.
         </p>
       </Modal>
     );
@@ -158,14 +164,18 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
   const apply = () => {
     if (!stages.d || !weapon) return;
     const g = structuredClone(game);
-    const atk = g.players[attackerSide].units.find((u) => u.uid === attackerUid)!;
-    if (kind === 'ranged') atk.shot = true;
-    else atk.fought = true;
-    let msg = `${unitLabel(attacker)} attacked ${target.name} with ${weapon.name}: ${stages.d.damageDealt} damage`;
+    for (const m of formation.members) {
+      const atk = g.players[attackerSide].units.find((u) => u.uid === m.uid)!;
+      if (kind === 'ranged') atk.shot = true;
+      else atk.fought = true;
+    }
+    let msg = `${attackerName} attacked ${target.name} with ${weapon.name}: ${stages.d.damageDealt} damage`;
     if (targetUnit) {
       const tu = g.players[defenderSide].units.find((u) => u.uid === targetUnit.uid)!;
       applyDamage(tu, stages.d.modelsDestroyed, stages.d.woundsLostOnCurrent);
       msg += `, ${stages.d.modelsDestroyed} model(s) destroyed${tu.modelsRemaining <= 0 ? ' — unit destroyed!' : ''}`;
+      const leftovers = formationOf(g.players[defenderSide], tu).members.filter((u) => u !== tu && u.modelsRemaining > 0);
+      if (tu.modelsRemaining <= 0 && leftovers.length) msg += ` ${leftovers.map(unitLabel).join(' and ')} now act on their own.`;
     }
     log(g, msg + '.', attackerSide);
     onApply(g);
@@ -178,9 +188,14 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
   const wt = weapon ? woundTarget(parseNum(weapon.strength), target.toughness) : 4;
 
   return (
-    <Modal onClose={onClose} title={`${kind === 'ranged' ? 'Shoot' : 'Fight'}: ${unitLabel(attacker)}`}>
+    <Modal onClose={onClose} title={`${kind === 'ranged' ? 'Shoot' : 'Fight'}: ${attackerName}`}>
       {advanced && kind === 'ranged' && <p className="small gold">This unit Advanced: only [ASSAULT] weapons can shoot (assault shooting).</p>}
       {attacker.moved === 'fallback' && <p className="small red">This unit Fell Back this turn and normally cannot shoot or charge.</p>}
+      {targetUnit && formationOf(defender, targetUnit).members.length > 1 && formationOf(defender, targetUnit).lead === targetUnit && (
+        <p className="tiny muted">
+          Attached unit: attacks are resolved against the bodyguard’s profile. Pick the attached character on its own for attacks that can be allocated to it (e.g. [PRECISION]).
+        </p>
+      )}
 
       <label className="field">
         <span>Weapon</span>
@@ -192,8 +207,9 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
             set({ attackers: scaled(weapons[i]) });
           }}
         >
-          {weapons.map((w, i) => (
-            <option key={w.name} value={i}>
+          {weapons.map(({ w, m }, i) => (
+            <option key={`${m.uid}:${w.name}`} value={i}>
+              {formation.members.length > 1 ? `${unitLabel(m)}: ` : ''}
               {w.count}× {w.name} — A{w.attacks} {w.skill} S{w.strength} AP{w.ap} D{w.damage}
               {w.keywords.length ? ` [${w.keywords.join(', ')}]` : ''}
             </option>
@@ -206,13 +222,17 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
         <label className="field grow">
           <span>Target</span>
           <select value={targetUid} onChange={(e) => (setTargetUid(e.target.value), setStages({}), setApplied(false))}>
-            {defender.units
-              .filter((u) => u.modelsRemaining > 0)
-              .map((u) => (
+            {defenderGroups.flatMap((f) => {
+              const living = f.members.filter((u) => u.modelsRemaining > 0);
+              const describe = (u: UnitState) => `${u.modelsRemaining} models, T${u.sheet.stats[0]?.T} Sv${u.sheet.stats[0]?.Sv}`;
+              return living.map((u, i) => (
                 <option key={u.uid} value={u.uid}>
-                  {unitLabel(u)} ({u.modelsRemaining} models, T{u.sheet.stats[0]?.T} Sv{u.sheet.stats[0]?.Sv})
+                  {i === 0
+                    ? `${formationName(f, unitLabel)} (${describe(u)})`
+                    : `  ↳ ${unitLabel(u)} only — e.g. Precision (${describe(u)})`}
                 </option>
-              ))}
+              ));
+            })}
             <option value="custom">Custom target…</option>
           </select>
         </label>

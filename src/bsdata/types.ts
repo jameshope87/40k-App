@@ -135,6 +135,24 @@ export interface RawCategoryLink {
   modifierGroups?: RawModifierGroup[];
 }
 
+/**
+ * New Recruit extension: lets a unit be associated with another unit, e.g. a
+ * Leader attaching to a bodyguard unit. `action: "group"` associations join
+ * two units together; the conditions are evaluated against each candidate.
+ */
+export interface RawAssociation {
+  id: string;
+  name: string;
+  label?: string;
+  action?: string;
+  childId?: string; // "unit", "model-or-unit", ...
+  min?: number | string;
+  max?: number | string;
+  scope?: string;
+  conditions?: RawCondition[];
+  conditionGroups?: RawConditionGroup[];
+}
+
 /** Shared shape of selectionEntry, selectionEntryGroup and entryLink. */
 export interface RawEntry {
   id: string;
@@ -157,6 +175,7 @@ export interface RawEntry {
   rules?: RawRule[];
   infoLinks?: RawInfoLink[];
   infoGroups?: RawInfoGroup[];
+  associations?: RawAssociation[];
 }
 
 export interface RawCategoryEntry {

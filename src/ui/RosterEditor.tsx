@@ -8,7 +8,7 @@ import { ErrorBox, Loading } from './common';
 import Options, { type OptionHandlers } from './Options';
 import Datasheet from './Datasheet';
 import { describeUnit } from '../roster/summary';
-import { addRoot, chooseInGroup, duplicateSelection, removeSelection, renameSelection, rosterToText, setChildCount } from '../roster/ops';
+import { addRoot, chooseInGroup, duplicateSelection, removeSelection, renameSelection, rosterToText, setAttachment, setChildCount } from '../roster/ops';
 import type { Roster } from '../roster/model';
 import { KNOWN_SOURCES } from '../bsdata/loader';
 
@@ -33,6 +33,98 @@ function modelSummary(r: RSel) {
   return `${n} model${n === 1 ? '' : 's'}`;
 }
 
+const unitName = (ev: Evaluator, r: RSel) => r.sel.customName || ev.nameOf(r.node, r);
+
+/** Leader / Support attachment controls for a unit card. */
+function Attachments({ ev, r, roster, update }: { ev: Evaluator; r: RSel; roster: Roster; update: (r: Roster) => void }) {
+  const all = ev.attachments();
+  // This unit attaching to others (it is a Leader / Support...).
+  const outgoing = r.node.associations.map((assoc) => {
+    const current = all.find((a) => a.from === r && a.association === assoc);
+    const candidates = ev.associationCandidates(r, assoc);
+    return { assoc, current, candidates };
+  });
+  // Units that could attach to this one (it is a bodyguard).
+  const incoming = all.filter((a) => a.to === r);
+  const possible = ev.roots.flatMap((from) =>
+    from === r
+      ? []
+      : from.node.associations
+          .filter((assoc) => !incoming.some((a) => a.from === from && a.association === assoc) && ev.associationCandidates(from, assoc).includes(r))
+          .map((assoc) => ({ from, assoc })),
+  );
+  if (!outgoing.length && !incoming.length && !possible.length) return null;
+  return (
+    <div className="attach">
+      {outgoing.map(({ assoc, current, candidates }) => (
+        <label key={assoc.id} className="field">
+          <span>
+            {assoc.label || assoc.name}: attach to{Number(assoc.min) > 0 ? ' (required)' : ''}
+          </span>
+          <select value={current?.targetUid ?? ''} onChange={(e) => update(setAttachment(roster, r.sel.uid, assoc.id, e.target.value || null))}>
+            <option value="">{candidates.length ? '— Not attached —' : '— No eligible units in your army —'}</option>
+            {candidates.map((c) => (
+              <option key={c.sel.uid} value={c.sel.uid}>
+                {unitName(ev, c)}
+                {(() => {
+                  const others = ev.associatedWith(c).filter((x) => x !== r);
+                  return others.length ? ` (with ${others.map((x) => unitName(ev, x)).join(', ')})` : '';
+                })()}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+      {!!incoming.length && (
+        <div className="row small" style={{ marginBottom: 8 }}>
+          <span className="muted">Attached:</span>
+          {incoming.map((a) => (
+            <span key={a.from.sel.uid + a.association.id} className="pill gold">
+              {unitName(ev, a.from)} <span className="muted">({a.label})</span>
+              <button className="small ghost" style={{ minHeight: 0, padding: 0 }} onClick={() => update(setAttachment(roster, a.from.sel.uid, a.association.id, null))} aria-label={`Detach ${unitName(ev, a.from)}`}>
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {!!possible.length && (
+        <label className="field">
+          <span>Attach a unit to this one</span>
+          <select
+            value=""
+            onChange={(e) => {
+              const p = possible[Number(e.target.value)];
+              if (p) update(setAttachment(roster, p.from.sel.uid, p.assoc.id, r.sel.uid));
+            }}
+          >
+            <option value="">— Choose a Leader / Support unit —</option>
+            {possible.map((p, i) => (
+              <option key={i} value={i}>
+                {unitName(ev, p.from)} ({p.assoc.label || p.assoc.name})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+}
+
+function AttachmentPills({ ev, r }: { ev: Evaluator; r: RSel }) {
+  const all = ev.attachments().filter((a) => a.to && (a.from === r || a.to === r));
+  if (!all.length) return null;
+  return (
+    <>
+      {all.map((a) => (
+        <span key={a.from.sel.uid + a.association.id} className="pill" title={a.label}>
+          {a.from === r ? `→ ${unitName(ev, a.to!)}` : `+ ${unitName(ev, a.from)}`}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function UnitCard({ ev, r, open, onToggle, h, roster, update }: { ev: Evaluator; r: RSel; open: boolean; onToggle: () => void; h: OptionHandlers; roster: Roster; update: (r: Roster) => void }) {
   const pts = ev.totalCost(r);
   const isUnit = r.node.type === 'unit' || r.node.type === 'model';
@@ -45,7 +137,8 @@ function UnitCard({ ev, r, open, onToggle, h, roster, update }: { ev: Evaluator;
             <b>{r.sel.customName || name}</b>
             {r.sel.customName && <span className="muted small"> · {name}</span>}
           </div>
-          <div className="tiny muted ellipsis">
+          <div className="tiny muted ellipsis row" style={{ gap: 4 }}>
+            <AttachmentPills ev={ev} r={r} />
             {isUnit
               ? modelSummary(r)
               : r.children
@@ -63,6 +156,7 @@ function UnitCard({ ev, r, open, onToggle, h, roster, update }: { ev: Evaluator;
           </div>
           {isUnit && (
             <>
+              <Attachments ev={ev} r={r} roster={roster} update={update} />
               <div className="row" style={{ margin: '10px 0' }}>
                 <button
                   className="small"

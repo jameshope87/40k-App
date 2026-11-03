@@ -19,10 +19,26 @@ async function buildPlayer(name: string, roster: Roster | undefined, onProgress:
   p.rosterUid = roster.uid;
   p.armyName = roster.name;
   p.faction = roster.catalogueName;
+  const bySel = new Map<string, ReturnType<typeof makeUnitState>>();
   for (const r of ev.roots) {
     if (r.node.type !== 'unit' && r.node.type !== 'model') continue;
-    p.units.push(makeUnitState(describeUnit(ev, r)));
+    const u = makeUnitState(describeUnit(ev, r));
+    bySel.set(r.sel.uid, u);
+    p.units.push(u);
   }
+  // Leader / Support attachments made in the army list.
+  for (const a of ev.attachments()) {
+    const from = bySel.get(a.from.sel.uid);
+    const to = a.to && bySel.get(a.to.sel.uid);
+    if (from && to) {
+      from.attachedTo = to.uid;
+      from.attachedAs = a.label;
+    }
+  }
+  // Keep attached units next to their bodyguard.
+  const pos = new Map(p.units.map((u, i) => [u.uid, i]));
+  const rank = (u: (typeof p.units)[number]) => (pos.get(u.attachedTo ?? u.uid) ?? 0) * 2 + (u.attachedTo ? 1 : 0);
+  p.units.sort((x, y) => rank(x) - rank(y));
   return p;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjustWounds, isHalfStrength, makeUnitState, newGame, newPlayer, nextStep } from './game';
+import { adjustWounds, formationLeadership, formations, isFormationHalfStrength, isHalfStrength, makeUnitState, newGame, newPlayer, nextStep } from './game';
 import { PRE_BATTLE, TURN } from './rules';
 import type { UnitSheet } from '../roster/summary';
 
@@ -38,5 +38,27 @@ describe('game flow', () => {
     adjustWounds(u, -1);
     expect(u.modelsRemaining).toBe(6);
     expect(u.woundsLost).toBe(1);
+  });
+});
+
+describe('attached units', () => {
+  it('groups leaders with their bodyguard until it is destroyed', () => {
+    const p = newPlayer('A');
+    const squad = makeUnitState(sheet);
+    const leader = makeUnitState({ ...sheet, name: 'Captain', models: 1, stats: [{ ...sheet.stats[0], name: 'Captain', W: '5', Ld: '5+' }] });
+    const other = makeUnitState({ ...sheet, name: 'Other' });
+    leader.attachedTo = squad.uid;
+    p.units.push(squad, leader, other);
+
+    let f = formations(p);
+    expect(f.map((x) => x.members.map((m) => m.sheet.name))).toEqual([['Squad', 'Captain'], ['Other']]);
+    expect(formationLeadership(f[0])).toBe(5);
+
+    adjustWounds(squad, 12); // 6 of 10 squad models destroyed → 5 of 11 models left
+    expect(isFormationHalfStrength(f[0])).toBe(true);
+
+    squad.modelsRemaining = 0;
+    f = formations(p);
+    expect(f.map((x) => x.members.map((m) => m.sheet.name))).toEqual([['Squad'], ['Captain'], ['Other']]);
   });
 });

@@ -16,6 +16,11 @@ export interface Selection {
   children: Selection[];
   /** Optional player-chosen name for a unit, e.g. "Squad Ardias". */
   customName?: string;
+  /**
+   * Unit attachments made by this (root) selection, keyed by association id,
+   * e.g. a Leader's "Leading" association → uid of the bodyguard unit.
+   */
+  attachments?: Record<string, string>;
 }
 
 export interface Force {
@@ -46,7 +51,9 @@ export function uid(): string {
 }
 
 export function cloneSelection(sel: Selection): Selection {
-  return { ...sel, uid: uid(), children: sel.children.map(cloneSelection) };
+  const { attachments: _drop, ...rest } = sel;
+  void _drop;
+  return { ...rest, uid: uid(), children: sel.children.map(cloneSelection) };
 }
 
 /** Find a selection (and its parent list) anywhere in a force. */

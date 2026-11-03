@@ -407,6 +407,13 @@ label {
   font-variant-numeric: tabular-nums;
 }
 
+.attach {
+  margin-top: 10px;
+  padding: 8px 10px 0;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
 /* Datasheet */
 .sheet table {
   border-collapse: collapse;

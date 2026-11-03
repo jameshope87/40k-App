@@ -22,10 +22,15 @@ It runs in any modern browser, installs as a PWA (offline capable) and builds as
 - Live points total against the battle-size limit.
 - Validation (min/max constraints, detachment points, enhancement limits, required characters and more), driven entirely by the data.
 - A datasheet for every unit: stats, ranged and melee weapons, abilities, rules and keywords.
+- **Leader / Support attachments:** attach characters to their bodyguard units.
+  - Only units the data says are eligible are offered.
+  - The "one Leader and one Support per bodyguard" limits are checked.
+  - Abilities that depend on an attached character (for example Feel No Pain 5+ with a Technomancer) switch on automatically.
 - Rename, duplicate and remove units. Copy the list as text, or export/import it as JSON.
 - Catalogues are cached in IndexedDB, so the app works offline once a faction has been opened. You can also load `.json`/`.cat`/`.gst` files from your device.
 
 ### Play mode
+- **Attached units** act as one unit: one move, one Battle-shock test, one charge. They shoot and fight with every member's weapons, and are listed together. Attacks against them use the bodyguard's profile. The attached characters can also be picked as targets on their own, for [PRECISION]. When the bodyguard is destroyed, its characters carry on as separate units.
 - **Pre-battle checklist:** muster, mission, battlefield, attacker/defender, battle formations (mark units in reserves), deployment, pre-battle abilities, first turn.
 - **Turn flow:** Start of turn → Command → Movement → Shooting → Charge → Fight → End of turn, for 5 battle rounds.
 - Each step shows a rules summary, dice calls, "watch for" stratagem reminders and an interactive helper:
@@ -94,7 +99,7 @@ BSDATA_DIR=/tmp/wh40k-11e BSDATA_CAT=Necrons npx vitest run integration
   - New Recruit's `affects` modifiers
   - profile characteristic modifiers
   - percentage constraints
-  - leader/bodyguard "associations"
-- Attaching Leaders to bodyguard units isn't modelled yet. Track it with unit notes in Play mode.
+  - in-unit associations (such as icons or instruments assigned to models)
+- In Play mode, damage to an attached unit is applied to the bodyguard. Pick the character as the target when attacks can be allocated to it.
 - The Play-mode summaries follow the 11th edition turn structure as a quick reference. They are deliberately brief, and some edge cases are left to the rulebook.
 - Ideas: shared game sessions between two phones, mission and secondary card tracking, Crusade support, importing New Recruit / BattleScribe `.rosz` files.

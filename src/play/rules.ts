@@ -12,6 +12,7 @@
  */
 
 export type Helper =
+  | 'muster'
   | 'cp'
   | 'battleshock'
   | 'move'
@@ -65,8 +66,9 @@ export const PRE_BATTLE: Step[] = [
     summary: [
       'Each player picks their army list. Check the points total and that the list is valid.',
       'Choose your **Warlord**.',
-      'Attach **Leader** and **Support** units to their **bodyguard** units. Each bodyguard can normally have one leader and one support unit.',
+      'Attach **Leader** and **Support** units to their **bodyguard** units. Each bodyguard can normally have one leader and one support unit. An attached unit moves, shoots, fights and takes Battle-shock tests as one unit.',
     ],
+    helper: 'muster',
   },
   {
     id: 'mission',
