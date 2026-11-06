@@ -267,6 +267,21 @@ export class GameIndex {
   }
 }
 
+/** Like findChildNode, but also returns the groups the entry was found in (outermost first). */
+export function findChildNodePath(node: Node, key: string, entryId?: string): { node: Node; groups: Node[] } | undefined {
+  const search = (container: Node, match: (c: Node) => boolean, groups: Node[]): { node: Node; groups: Node[] } | undefined => {
+    for (const c of container.children) {
+      if (c.kind === 'entry' && match(c)) return { node: c, groups };
+      if (c.kind === 'group') {
+        const inner = search(c, match, [...groups, c]);
+        if (inner) return inner;
+      }
+    }
+    return undefined;
+  };
+  return search(node, (c) => c.key === key, []) ?? (entryId ? search(node, (c) => c.id === entryId, []) : undefined);
+}
+
 /** Find the child node for `key` beneath `node`, looking through groups. */
 export function findChildNode(node: Node, key: string, entryId?: string): Node | undefined {
   for (const c of node.children) {

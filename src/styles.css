@@ -781,3 +781,27 @@ details > summary::marker {
   border-radius: 4px;
   padding: 1px 4px;
 }
+
+/* Model loadouts */
+.loadouts {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin: 6px 0;
+}
+.loadout {
+  border-top: 1px dashed var(--line);
+  padding-top: 2px;
+}
+
+/* Keep long names / selects from widening grid columns on phones */
+.editor > *,
+.grid2 > * {
+  min-width: 0;
+}
+.photos select,
+.attach select {
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+}

@@ -19,8 +19,9 @@ It runs in any modern browser, installs as a PWA (offline capable) and builds as
 - Choose a data source. The default is `BSData/wh40k-11e` (11th edition). `BSData/wh40k-10e` and any custom BSData-format repo also work.
 - Pick a faction, then add units grouped by battlefield role, with search.
 - Configure options: model counts, wargear choices, enhancements, warlord, detachment, battle size.
-- Live points total against the battle-size limit.
-- Validation (min/max constraints, detachment points, enhancement limits, required characters and more), driven entirely by the data.
+- **Model loadouts:** split models off a squad ("Split off 1") so they can take different wargear, e.g. 4× chainsword + 1× eviscerator. Groups with identical wargear can be merged back.
+- Live points total against the battle-size limit, including the extra cost of repeat copies of a unit ("Requisition Thresholds") where the data defines it.
+- Validation driven entirely by the data: min/max constraints, per-unit wargear limits (e.g. max 2 eviscerators in the unit), data-defined rules such as "Max 1 per 5 models", detachment points, enhancement limits, required characters and more.
 - A datasheet for every unit: stats, ranged and melee weapons, abilities, rules and keywords.
 - **Leader / Support attachments:** attach characters to their bodyguard units.
   - Only units the data says are eligible are offered.
