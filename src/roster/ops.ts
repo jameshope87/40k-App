@@ -90,6 +90,47 @@ export function setChildCount(ev: Evaluator, roster: Roster, parentUid: string, 
   });
 }
 
+/** Set the count of one specific selection (0 removes it). */
+export function setSelectionCount(roster: Roster, selUid: string, count: number): Roster {
+  return edit(roster, (s) => {
+    const f = findSelection(s, selUid);
+    if (!f) return;
+    if (count <= 0) f.parentList.splice(f.parentList.indexOf(f.sel), 1);
+    else f.sel.count = count;
+  });
+}
+
+/**
+ * Split `n` models off a selection into a new, separate selection of the same
+ * entry with a copy of its wargear, so they can be given different options
+ * (e.g. 4× Marine with chainswords + 1× Marine with an eviscerator).
+ */
+export function splitSelection(roster: Roster, selUid: string, n = 1): { roster: Roster; uid?: string } {
+  let newUid: string | undefined;
+  const next = edit(roster, (s) => {
+    const f = findSelection(s, selUid);
+    if (!f || f.sel.count <= n) return;
+    const copy = cloneSelection(f.sel);
+    copy.count = n;
+    copy.customName = undefined;
+    newUid = copy.uid;
+    f.sel.count -= n;
+    f.parentList.splice(f.parentList.indexOf(f.sel) + 1, 0, copy);
+  });
+  return { roster: next, uid: newUid };
+}
+
+/** Merge a selection into another one of the same entry (same parent): counts add up, wargear of the target is kept. */
+export function mergeSelection(roster: Roster, fromUid: string, intoUid: string): Roster {
+  return edit(roster, (s) => {
+    const from = findSelection(s, fromUid);
+    const into = findSelection(s, intoUid);
+    if (!from || !into || from.parentList !== into.parentList) return;
+    into.sel.count += from.sel.count;
+    from.parentList.splice(from.parentList.indexOf(from.sel), 1);
+  });
+}
+
 /** Pick one entry of a "choose one" group, replacing any other choice. */
 export function chooseInGroup(ev: Evaluator, roster: Roster, parentUid: string, group: Node, node: Node, count = 1): Roster {
   const parent = findRSel(ev, parentUid);

@@ -5,6 +5,33 @@ import { Stepper } from './common';
 export interface OptionHandlers {
   setCount: (parentUid: string, node: Node, count: number) => void;
   choose: (parentUid: string, group: Node, node: Node | null) => void;
+  /** Set the count of one particular selection (a model loadout). */
+  setSelectionCount: (selUid: string, count: number) => void;
+  /** Split one model off a loadout so it can have different wargear. */
+  split: (selUid: string) => void;
+  /** Merge a loadout into an identical one. */
+  merge: (fromUid: string, intoUid: string) => void;
+}
+
+/** Signature of a selection's wargear, used to spot identical loadouts. */
+function signature(r: RSel): string {
+  return r.children
+    .map((c) => `${c.node.key}x${c.sel.count}(${signature(c)})`)
+    .sort()
+    .join(',');
+}
+
+/** Short description of a loadout's chosen wargear, e.g. "Plasma pistol, Eviscerator". */
+function loadoutSummary(ev: Evaluator, r: RSel): string {
+  const names: string[] = [];
+  const walk = (x: RSel) => {
+    for (const c of x.children) {
+      names.push(ev.nameOf(c.node, c));
+      walk(c);
+    }
+  };
+  walk(r);
+  return names.join(', ');
 }
 
 /** Whether a group (recursively) contains anything that can be selected. */
@@ -36,7 +63,11 @@ function costLabel(ev: Evaluator, node: Node, self: RSel) {
 }
 
 function EntryOption({ ev, owner, node, h }: { ev: Evaluator; owner: RSel; node: Node; h: OptionHandlers }) {
-  const selected = owner.children.find((c) => c.node === node);
+  const all = owner.children.filter((c) => c.node === node);
+  if (all.length > 1 || (all.length === 1 && all[0].sel.count > 1 && hasVisibleOptions(ev, all[0]))) {
+    return <Loadouts ev={ev} node={node} loadouts={all} h={h} />;
+  }
+  const selected = all[0];
   if (!selected && !ev.isAvailable(node, owner)) return null;
   const self = selected ?? ev.virtual(node, owner);
   const { min, max } = ev.limits(node, self);
@@ -72,6 +103,69 @@ function EntryOption({ ev, owner, node, h }: { ev: Evaluator; owner: RSel; node:
         <summary className="tiny muted">Options for {name}</summary>
         <Options ev={ev} owner={selected!} container={selected!.node} h={h} />
       </details>
+    </div>
+  );
+}
+
+/**
+ * Several selections of the same model entry ("loadouts"): each has its own
+ * model count and wargear, e.g. 4× Marine with chainsword + 1× with eviscerator.
+ */
+function Loadouts({ ev, node, loadouts, h }: { ev: Evaluator; node: Node; loadouts: RSel[]; h: OptionHandlers }) {
+  const first = loadouts[0];
+  const { min, max } = ev.limits(node, first);
+  const total = loadouts.reduce((s, l) => s + l.sel.count, 0);
+  const name = ev.nameOf(node, first);
+  const bad = total < min || (max >= 0 && total > max);
+  return (
+    <div className="loadouts">
+      <div className="opt">
+        <span className="name">
+          <b>{name}</b>{' '}
+          <span className={`tiny ${bad ? 'red' : 'muted'}`}>
+            {total} model{total === 1 ? '' : 's'}
+            {max >= 0 ? ` (${min}–${max})` : min ? ` (min ${min})` : ''}
+          </span>
+        </span>
+        {costLabel(ev, node, first)}
+      </div>
+      {loadouts.map((l, i) => {
+        const twin = loadouts.slice(0, i).find((o) => signature(o) === signature(l));
+        return (
+          <div key={l.sel.uid} className="loadout">
+            <div className="opt">
+              <Stepper value={l.sel.count} max={max >= 0 ? l.sel.count + Math.max(0, max - total) : -1} onChange={(v) => h.setSelectionCount(l.sel.uid, v)} />
+              <span className="name small">
+                {loadouts.length > 1 ? `Group ${i + 1}` : 'All models'}
+                <span className="tiny muted ellipsis" style={{ display: 'block' }}>
+                  {loadoutSummary(ev, l) || 'No wargear'}
+                </span>
+              </span>
+              {l.sel.count > 1 && (
+                <button className="small" onClick={() => h.split(l.sel.uid)} title="Give one model different wargear">
+                  Split off 1
+                </button>
+              )}
+              {twin && (
+                <button className="small" onClick={() => h.merge(l.sel.uid, twin.sel.uid)} title="Same wargear as an earlier group">
+                  Merge
+                </button>
+              )}
+            </div>
+            <details className="nested" open>
+              <summary className="tiny muted">
+                Wargear{l.sel.count > 1 ? ` for these ${l.sel.count} models` : ''}
+              </summary>
+              <Options ev={ev} owner={l} container={l.node} h={h} />
+            </details>
+          </div>
+        );
+      })}
+      {loadouts.length === 1 && first.sel.count > 1 && (
+        <p className="tiny muted" style={{ margin: '2px 0 6px' }}>
+          Options apply to every model in a group. Use <b>Split off 1</b> to give a model different wargear.
+        </p>
+      )}
     </div>
   );
 }

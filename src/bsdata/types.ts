@@ -25,6 +25,22 @@ export interface RawConditionGroup {
   type?: 'and' | 'or' | string;
   conditions?: RawCondition[];
   conditionGroups?: RawConditionGroup[];
+  /**
+   * New Recruit extension: count the selections in `scope` for which the
+   * nested conditions hold (with "self" meaning each candidate), and compare
+   * that count with `value`. Used e.g. for "the 3rd copy of this unit costs more".
+   */
+  localConditionGroups?: RawLocalConditionGroup[];
+}
+
+export interface RawLocalConditionGroup {
+  type: string; // atLeast, greaterThan, ...
+  field: string; // selections
+  scope: string;
+  value?: number | string;
+  includeChildSelections?: boolean;
+  conditions?: RawCondition[];
+  conditionGroups?: RawConditionGroup[];
 }
 
 export interface RawRepeat {

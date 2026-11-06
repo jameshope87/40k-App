@@ -8,7 +8,7 @@ import { ErrorBox, Loading } from './common';
 import Options, { type OptionHandlers } from './Options';
 import Datasheet from './Datasheet';
 import { describeUnit } from '../roster/summary';
-import { addRoot, chooseInGroup, duplicateSelection, removeSelection, renameSelection, rosterToText, setAttachment, setChildCount } from '../roster/ops';
+import { addRoot, chooseInGroup, duplicateSelection, mergeSelection, removeSelection, renameSelection, rosterToText, setAttachment, setChildCount, setSelectionCount, splitSelection } from '../roster/ops';
 import type { Roster } from '../roster/model';
 import { KNOWN_SOURCES } from '../bsdata/loader';
 import { PhotoManager, UnitThumb } from './Photos';
@@ -250,6 +250,9 @@ export default function RosterEditor({ uid }: { uid: string }) {
 
   const update = (r: Roster) => saveRoster(r);
   const h: OptionHandlers = {
+    setSelectionCount: (selUid, count) => update(setSelectionCount(roster, selUid, count)),
+    split: (selUid) => update(splitSelection(roster, selUid).roster),
+    merge: (fromUid, intoUid) => update(mergeSelection(roster, fromUid, intoUid)),
     setCount: (parentUid, node, count) => ev && update(setChildCount(ev, roster, parentUid, node, count)),
     choose: (parentUid, group, node) => {
       if (!ev) return;

@@ -8,10 +8,14 @@
  *  - conditions and condition groups (and/or) on "selections", "forces" and
  *    cost fields, with scopes self / parent / force / roster /
  *    primary-catalogue / ancestor-by-id
- *  - min/max constraints on selections and costs
+ *  - min/max constraints on selections and costs, in any scope (parent,
+ *    unit, ancestor entry, force/roster)
+ *  - New Recruit extensions: "error"/"warning" modifiers, local condition
+ *    groups with "before" (e.g. extra cost for the 3rd copy of a unit), and
+ *    unit associations (Leader / Support)
  */
-import type { RawAssociation, RawCondition, RawConditionGroup, RawConstraint, RawForceEntry, RawRepeat } from './types';
-import { type FlatModifier, type GameIndex, type InfoItem, type Node, findChildNode, groupEntries } from './index';
+import type { RawAssociation, RawCondition, RawConditionGroup, RawConstraint, RawForceEntry, RawLocalConditionGroup, RawRepeat } from './types';
+import { type FlatModifier, type GameIndex, type InfoItem, type Node, findChildNodePath, groupEntries } from './index';
 import { type Force, type Roster, type Selection, uid } from '../roster/model';
 
 /** A selection resolved against the data. */
@@ -23,6 +27,10 @@ export interface RSel {
   /** Total number of this selection in the army (product of counts from the root). */
   mult: number;
   virtual?: boolean;
+  /** Ids/keys of the option groups this selection was chosen from (e.g. "5-10 Marines"). */
+  groupIds?: string[];
+  /** Position in the roster (depth-first), used by "before" conditions. */
+  order?: number;
 }
 
 /** Pseudo-scope standing for the whole force/roster. */
@@ -49,12 +57,34 @@ export interface Issue {
 
 const num = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? 0) || 0);
 
+function compare(v: number, type: string, want: number): boolean {
+  switch (type) {
+    case 'atLeast':
+      return v >= want;
+    case 'atMost':
+      return v <= want;
+    case 'greaterThan':
+      return v > want;
+    case 'lessThan':
+      return v < want;
+    case 'equalTo':
+      return v === want;
+    case 'notEqualTo':
+      return v !== want;
+    default:
+      return false;
+  }
+}
+
 export class Evaluator {
   readonly roots: RSel[];
   readonly orphans: Selection[] = [];
   readonly forceEntry?: RawForceEntry;
   private memo = new Map<string, unknown>();
   private depth = 0;
+  private orderCounter = 0;
+  /** The selection a local condition group is being evaluated for. */
+  private localOrigin: RSel[] = [];
 
   constructor(
     readonly index: GameIndex,
@@ -73,15 +103,23 @@ export class Evaluator {
     }
   }
 
-  private resolve(sel: Selection, node: Node, parent: RSel | null): RSel {
-    const r: RSel = { sel, node, parent, children: [], mult: (parent?.mult ?? 1) * sel.count };
+  private resolve(sel: Selection, node: Node, parent: RSel | null, groups: Node[] = []): RSel {
+    const r: RSel = {
+      sel,
+      node,
+      parent,
+      children: [],
+      mult: (parent?.mult ?? 1) * sel.count,
+      order: this.orderCounter++,
+      groupIds: groups.length ? groups.flatMap((g) => [g.id, g.key]) : undefined,
+    };
     for (const child of sel.children) {
-      const cn = findChildNode(node, child.key, child.entryId);
-      if (!cn) {
+      const found = findChildNodePath(node, child.key, child.entryId);
+      if (!found) {
         this.orphans.push(child);
         continue;
       }
-      r.children.push(this.resolve(child, cn, r));
+      r.children.push(this.resolve(child, found.node, r, found.groups));
     }
     return r;
   }
@@ -139,6 +177,8 @@ export class Evaluator {
         return num(value) - num(mv) * times;
       case 'multiply':
         return num(value) * Math.pow(num(mv), times);
+      case 'divide':
+        return num(mv) ? num(value) / Math.pow(num(mv), times) : value;
       case 'append':
         return `${value} ${mv ?? ''}`.trim();
       case 'prepend':
@@ -186,9 +226,31 @@ export class Evaluator {
     const results = [
       ...(g.conditions ?? []).map((c) => () => this.evalCondition(c, self)),
       ...(g.conditionGroups ?? []).map((cg) => () => this.evalGroup(cg, self)),
+      ...(g.localConditionGroups ?? []).map((lg) => () => this.evalLocalGroup(lg, self)),
     ];
     if (!results.length) return true;
     return g.type === 'or' ? results.some((f) => f()) : results.every((f) => f());
+  }
+
+  /** Count selections in a scope that satisfy nested conditions (evaluated against each candidate). */
+  private evalLocalGroup(lg: RawLocalConditionGroup, self: ScopeTarget): boolean {
+    const target = this.resolveScope(lg.scope, self);
+    const origin = self && typeof self === 'object' ? self : undefined;
+    let count = 0;
+    if (origin) this.localOrigin.push(origin);
+    try {
+      const walk = (list: RSel[], m: number) => {
+        for (const r of list) {
+          const cm = m * r.sel.count;
+          if (this.evalConditions(lg.conditions, lg.conditionGroups, r)) count += cm;
+          if (lg.includeChildSelections) walk(r.children, cm);
+        }
+      };
+      walk(this.scopeChildren(target), 1);
+    } finally {
+      if (origin) this.localOrigin.pop();
+    }
+    return compare(count, lg.type, num(lg.value));
   }
 
   private ancestors(self: ScopeTarget): RSel[] {
@@ -212,6 +274,11 @@ export class Evaluator {
         return FORCE;
       case 'primary-catalogue':
         return PRIMARY_CATALOGUE;
+      case 'unit': {
+        // The nearest enclosing unit (or the top-level selection).
+        const chain = this.ancestors(self);
+        return chain.find((a) => a.node.type === 'unit') ?? (chain.length ? chain[chain.length - 1] : FORCE);
+      }
       case 'root-entry': {
         const chain = this.ancestors(self);
         return chain.length ? chain[chain.length - 1] : FORCE;
@@ -231,7 +298,7 @@ export class Evaluator {
     if (!childId || childId === 'any') return true;
     const n = r.node;
     if (childId === n.type) return true;
-    return n.id === childId || n.key === childId || n.categoryIds.includes(childId);
+    return n.id === childId || n.key === childId || n.categoryIds.includes(childId) || !!r.groupIds?.includes(childId);
   }
 
   private instanceOf(target: ScopeTarget, childId: string | undefined, scope: string, self: ScopeTarget): boolean {
@@ -286,25 +353,16 @@ export class Evaluator {
     const target = this.resolveScope(c.scope, self);
     if (c.type === 'instanceOf') return this.instanceOf(target, c.childId, c.scope, self);
     if (c.type === 'notInstanceOf') return !this.instanceOf(target, c.childId, c.scope, self);
+    if (c.type === 'before') {
+      // Inside a local condition group: is this candidate earlier in the roster than the selection being evaluated?
+      const origin = this.localOrigin[this.localOrigin.length - 1];
+      if (!origin || !target || typeof target !== 'object' || target === origin) return false;
+      if (!this.matches(target, c.childId)) return false;
+      return (target.order ?? Infinity) < (origin.virtual ? Infinity : (origin.order ?? Infinity));
+    }
     const recursive = !!c.includeChildSelections || target === FORCE && c.field !== 'selections';
     const v = this.measure(c.field, c.childId, target, recursive);
-    const want = num(c.value);
-    switch (c.type) {
-      case 'atLeast':
-        return v >= want;
-      case 'atMost':
-        return v <= want;
-      case 'greaterThan':
-        return v > want;
-      case 'lessThan':
-        return v < want;
-      case 'equalTo':
-        return v === want;
-      case 'notEqualTo':
-        return v !== want;
-      default:
-        return false;
-    }
+    return compare(v, c.type, num(c.value));
   }
 
   private repeatTimes(repeats: RawRepeat[], self: ScopeTarget): number {
@@ -533,6 +591,24 @@ export class Evaluator {
       }
     }
 
+    // Messages the data attaches with "error" / "warning" modifiers (e.g. "Max 1 Eviscerator per 5 models").
+    const said = new Set<string>();
+    const messages = (r: RSel) => {
+      for (const m of r.node.modifiers) {
+        if ((m.field !== 'error' && m.field !== 'warning') || (m.type !== 'add' && m.type !== 'set')) continue;
+        if (!m.guards.every((g) => this.evalGroup(g, r)) || !this.evalConditions(m.conditions, m.conditionGroups, r)) continue;
+        const root = this.rootOf(r);
+        const text = String(m.value ?? '').replace(/\{this\}/g, this.nameOf(r.node, r));
+        const message = r === root ? `${root.sel.customName || this.nameOf(root.node, root)}: ${text}` : `${root.sel.customName || this.nameOf(root.node, root)} › ${text}`;
+        const key = `${root.sel.uid}:${message}`;
+        if (said.has(key)) continue;
+        said.add(key);
+        issues.push({ severity: m.field === 'error' ? 'error' : 'warning', message, selUid: root.sel.uid });
+      }
+      r.children.forEach(messages);
+    };
+    this.roots.forEach(messages);
+
     // Everything beneath each selection.
     const visit = (r: RSel) => {
       this.checkChildren(r, r.node, issues, seen);
@@ -544,6 +620,7 @@ export class Evaluator {
 
   private checkChildren(owner: RSel, container: Node, issues: Issue[], seen: Set<string>) {
     for (const child of container.children) {
+      // An entry can be selected more than once under the same parent (e.g. several model loadouts).
       const selected = owner.children.find((c) => c.node === child);
       const self = selected ?? this.virtual(child, owner);
       const hidden = this.isHidden(child, self);
@@ -570,6 +647,24 @@ export class Evaluator {
           if (seen.has(k) || (!selected && c.type === 'max')) continue;
           seen.add(k);
           this.checkConstraint(c, child.modifiers, this.nameOf(child, self), () => this.countOf(child, FORCE, true), self, issues, owner.sel.uid);
+        } else if (c.scope !== 'self') {
+          // A limit across an enclosing selection, e.g. "max 2 plasma pistols in the unit".
+          const tgt = this.resolveScope(c.scope, self);
+          if (!tgt || tgt === PRIMARY_CATALOGUE) continue;
+          const tgtUid = tgt === FORCE ? 'force' : tgt.sel.uid;
+          const k = `${tgtUid}:${child.key}:${c.id}`;
+          if (seen.has(k) || (!selected && c.type === 'max')) continue;
+          seen.add(k);
+          const where = tgt === FORCE ? '' : `${tgt.sel.customName || this.nameOf(tgt.node, tgt)} › `;
+          this.checkConstraint(
+            c,
+            child.modifiers,
+            `${where}${this.nameOf(child, self)}`,
+            () => this.countOf(child, tgt, true),
+            self,
+            issues,
+            tgt === FORCE ? owner.sel.uid : this.rootOf(tgt).sel.uid,
+          );
         }
       }
       if (child.kind === 'group') this.checkChildren(owner, child, issues, seen);
