@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import type { ChecklistKind, Phase, Step } from '../../play/rules';
-import { type GameState, checklistKey } from '../../play/game';
+import { type ChecklistKind, type Phase, type Step, applies } from '../../play/rules';
+import { type GameState, checklistKey, preBattleProgress, styleOf } from '../../play/game';
 import { parseDice } from '../../play/dice';
 import { Rich } from '../common';
 import { openDice } from '../DiceTray';
@@ -26,7 +26,8 @@ export default function StepGuide({ game, phase, step, update, helper, abilities
   const prebattle = game.stage === 'prebattle';
   const checks = game.checks ?? {};
   const key = (id: string) => checklistKey(game, step.id, id);
-  const shown = step.checklist.filter((i) => full || i.kind !== 'think');
+  const style = styleOf(game);
+  const shown = step.checklist.filter((i) => applies(i, style) && (full || i.kind !== 'think'));
   const done = shown.filter((i) => checks[key(i.id)]).length;
   const kinds: ChecklistKind[] = ['do', 'check', 'think'];
 
@@ -41,7 +42,7 @@ export default function StepGuide({ game, phase, step, update, helper, abilities
   return (
     <div className="card step-card">
       <div className="tiny muted">
-        {prebattle ? 'Pre-battle' : `${phase?.name} · step ${game.step + 1} of ${phase?.steps.length}`}
+        {prebattle ? `Pre-battle · step ${preBattleProgress(game).join(' of ')}` : `${phase?.name} · step ${game.step + 1} of ${phase?.steps.length}`}
         {' · '}
         <b className="gold">{who}</b>
       </div>
@@ -81,6 +82,7 @@ export default function StepGuide({ game, phase, step, update, helper, abilities
                     />
                     <span>
                       <Rich text={i.text} />
+                      {i.play === 'matched' && <span className="pill tiny-pill">Event</span>}
                     </span>
                   </label>
                 );

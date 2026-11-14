@@ -8,7 +8,7 @@ import { makeUnitState, newGame, newPlayer, type PlayerState } from '../../play/
 import { KNOWN_SOURCES } from '../../bsdata/loader';
 import type { Roster } from '../../roster/model';
 import { ErrorBox, Loading } from '../common';
-import { DISCLAIMER, RULES_EDITION } from '../../play/rules';
+import { DISCLAIMER, PLAY_STYLES, RULES_EDITION, type PlayStyle } from '../../play/rules';
 
 async function buildPlayer(name: string, roster: Roster | undefined, onProgress: (m: string) => void): Promise<PlayerState> {
   const p = newPlayer(name);
@@ -49,6 +49,7 @@ export default function PlaySetup() {
   const preselect = queryParam('roster') ?? '';
   const [names, setNames] = useState(['Player 1', 'Player 2']);
   const [lists, setLists] = useState<string[]>([preselect, '']);
+  const [style, setStyle] = useState<PlayStyle>('casual');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
@@ -65,6 +66,7 @@ export default function PlaySetup() {
         ),
       );
       const g = newGame(players[0], players[1]);
+      g.style = style;
       saveGame(g);
       navigate(`/play/${g.uid}`);
     } catch (e) {
@@ -103,6 +105,23 @@ export default function PlaySetup() {
               </label>
             </div>
           ))}
+        </div>
+        <div className="card">
+          <h3>Type of game</h3>
+          {PLAY_STYLES.map((ps) => (
+            <label key={ps.style} className="opt" style={{ alignItems: 'flex-start' }}>
+              <input type="radio" name="style" checked={style === ps.style} onChange={() => setStyle(ps.style)} style={{ marginTop: 3 }} />
+              <span className="name">
+                <b>{ps.title}</b>
+                <span className="small muted" style={{ display: 'block' }}>
+                  {ps.blurb}
+                </span>
+              </span>
+            </label>
+          ))}
+          <p className="tiny muted" style={{ marginBottom: 0 }}>
+            You can switch during the game. The Glossary tab explains the differences.
+          </p>
         </div>
         <div className="card small">
           <b>No army lists? No problem.</b> Every step of the game gets a checklist of what to do, check and think about, plus dice rollers, score tracking and an attack

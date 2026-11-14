@@ -51,7 +51,11 @@ It runs in any modern browser, installs as a PWA (offline capable) and builds as
   - common mistakes
   - a collapsible rules detail
 
-  A **Full / Compact** toggle hides the extra guidance once you know the game. The step content lives in `src/play/rules.ts`.
+  A **Full / Compact** toggle hides the extra guidance once you know the game.
+- **Casual or matched play:** choose the type of game at setup (you can switch in-game).
+  - **Matched play** follows the Warhammer Event Companion's pre-battle order and adds event procedure: Force Disposition, terrain layouts, Fixed/Tactical secondaries, VP caps, the extra-CP limit and Battle Ready VP.
+  - **Casual games** hide that procedure and add tips for first games.
+  - The Glossary tab compares the two. The step content lives in `src/play/rules.ts`.
 - **Attack calculator** with hand-entered weapon and target stats (no list needed). It explains each roll in plain English as you go.
 - **Attached units** act as one unit: one move, one Battle-shock test, one charge. They shoot and fight with every member's weapons, and are listed together. Attacks against them use the bodyguard's profile. The attached characters can also be picked as targets on their own, for [PRECISION]. When the bodyguard is destroyed, its characters carry on as separate units.
 - **Pre-battle checklist:** muster, mission, battlefield, attacker/defender, battle formations (mark units in reserves), deployment, pre-battle abilities, first turn.

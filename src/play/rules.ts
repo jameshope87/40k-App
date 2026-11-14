@@ -38,10 +38,15 @@ export interface DiceCall {
 
 export type ChecklistKind = 'do' | 'check' | 'think';
 
+/** Casual games skip tournament-only procedure; matched play follows the event rules. */
+export type PlayStyle = 'casual' | 'matched';
+
 export interface ChecklistItem {
   id: string;
   kind: ChecklistKind;
   text: string;
+  /** Only shown for this play style (both when omitted). */
+  play?: PlayStyle;
 }
 
 /** Who makes the decisions in a step. */
@@ -50,6 +55,8 @@ export type Actor = 'active' | 'opponent' | 'both';
 export interface Step {
   id: string;
   title: string;
+  /** Only part of the game in this play style (both when omitted). */
+  play?: PlayStyle;
   /** One sentence: what this step is for. */
   overview: string;
   actor: Actor;
@@ -80,8 +87,20 @@ export const RULES_EDITION = '11th edition';
 export const DISCLAIMER =
   'This guidance is a short paraphrased reminder for use at the table. Always check the official Core Rules and your mission pack for exact wording. Unit and weapon rules come from your army data.';
 
-const c = (id: string, kind: ChecklistKind, text: string): ChecklistItem => ({ id, kind, text });
+const c = (id: string, kind: ChecklistKind, text: string, play?: PlayStyle): ChecklistItem => ({ id, kind, text, play });
+/** Matched play (events / tournaments) only. */
+const m = (id: string, kind: ChecklistKind, text: string) => c(id, kind, text, 'matched');
+/** Casual play only. */
+const k = (id: string, kind: ChecklistKind, text: string) => c(id, kind, text, 'casual');
 
+export function applies(item: { play?: PlayStyle }, style: PlayStyle) {
+  return !item.play || item.play === style;
+}
+
+/**
+ * Pre-battle sequence. Matched play follows the order of the Warhammer Event
+ * mission sequence; casual games skip the event-only steps.
+ */
 export const PRE_BATTLE: Step[] = [
   {
     id: 'muster',
@@ -90,10 +109,12 @@ export const PRE_BATTLE: Step[] = [
     actor: 'both',
     checklist: [
       c('size', 'do', 'Agree the **battle size** (points limit) with your opponent.'),
+      k('small', 'think', 'Learning? A **small game** (around 500–1000 points) with a few units each is much easier to follow.'),
       c('lists', 'do', 'Show each other your **army lists**.'),
       c('warlord', 'do', 'Choose your **Warlord**.'),
       c('attach', 'do', 'Attach **Leader** and **Support** units to their **bodyguard** units, and say which ones.'),
-      c('points', 'check', 'Each list is within the points limit and uses its detachment and enhancement rules correctly.'),
+      m('disposition', 'do', 'Choose one of your **Force Disposition** cards and record it on your roster.'),
+      m('points', 'check', 'Each list is **legal**: within the points limit, built as the Warhammer 40,000 app allows, using the current points and rules updates.'),
       c('leader', 'check', 'Each Leader joins a unit its **Leader** ability allows.'),
       c('roles', 'think', 'Decide which units will **hold objectives** and which will **hunt** enemy units.'),
     ],
@@ -105,16 +126,30 @@ export const PRE_BATTLE: Step[] = [
   },
   {
     id: 'mission',
-    title: 'Select mission',
+    title: 'Determine mission',
     overview: 'Decide what you are fighting over and how victory points (VP) are scored.',
     actor: 'both',
     checklist: [
-      c('primary', 'do', 'Choose or draw the **primary mission**, **deployment map** and any **mission rules**.'),
-      c('secondary', 'do', 'Choose or draw **secondary missions** as your mission pack says.'),
-      c('when', 'check', 'Agree **when** primary VP are scored (for example in the Command phase or at the end of the turn) and any VP caps.'),
-      c('plan', 'think', 'Work out which objectives you can **realistically hold** each round, and which secondaries suit your army.'),
+      k('agree', 'do', 'Agree a **mission**. For a first game, a simple one works well: hold more objectives than your opponent.'),
+      k('cards', 'think', 'If you have a **mission deck**, you can use it as in matched play, or just pick cards you both like.'),
+      m('primary', 'do', 'Find your **opponent’s Force Disposition symbol**. The Primary Mission listed against it is **your** Primary Mission.'),
+      m('read', 'do', 'Read **both** Primary Missions so you know how each of you scores VP.'),
+      c('when', 'check', 'Agree **when** VP are scored, for example in the Command phase or at the end of the turn.'),
+      c('plan', 'think', 'Work out which objectives you can **realistically hold** each round.'),
     ],
     summary: ['Victory points decide the winner, not how many models you destroy. Keep the mission in mind every turn.'],
+  },
+  {
+    id: 'layout',
+    title: 'Determine a layout',
+    play: 'matched',
+    overview: 'Pick the terrain layout for this pair of Primary Missions.',
+    actor: 'both',
+    checklist: [
+      m('abc', 'do', 'Each pair of Primary Missions has **layouts A, B and C** (in the Warhammer 40,000 app and the Event Companion). Use the one your event organiser says, or pick one at random.'),
+      m('series', 'think', 'Events often cycle through the layouts in order across the rounds.'),
+    ],
+    summary: ['Layouts show where terrain, objectives and deployment zones go.'],
   },
   {
     id: 'battlefield',
@@ -122,9 +157,12 @@ export const PRE_BATTLE: Step[] = [
     overview: 'Set up terrain and objectives.',
     actor: 'both',
     checklist: [
-      c('terrain', 'do', 'Set up the **terrain** features.'),
-      c('objectives', 'do', 'Place the **objective markers** where the deployment map shows.'),
-      c('agree', 'check', 'Agree what each terrain piece does: does it **block line of sight**? Is it a **terrain area** that gives cover?'),
+      m('table', 'do', 'Use a **44" × 60"** battlefield.'),
+      m('areas', 'do', 'Set up the **terrain areas** shown on the layout, then the **terrain features** on them.'),
+      k('table-casual', 'do', 'Use whatever table you have, and agree on its size.'),
+      k('terrain', 'do', 'Set up plenty of **terrain**. Big pieces that block line of sight make the game better.'),
+      c('objectives', 'do', 'Place the **objective markers**.'),
+      c('agree', 'check', 'Agree what each terrain piece does: is it **dense** or **light** terrain, does it **block line of sight**, and what counts as its **terrain area**?'),
       c('lanes', 'think', 'Spot the **firing lanes** and the places your units can **hide**.'),
     ],
     summary: ['Settling terrain questions now avoids arguments later.'],
@@ -132,14 +170,28 @@ export const PRE_BATTLE: Step[] = [
   {
     id: 'zones',
     title: 'Determine attacker and defender',
-    overview: 'A roll-off decides who is the Attacker and who is the Defender, and so the deployment zones.',
+    overview: 'Pick battlefield edges, then roll off for Attacker and Defender.',
     actor: 'both',
     checklist: [
-      c('roll', 'do', '**Roll off**: each player rolls a D6, highest wins (re-roll ties).'),
-      c('choose', 'do', 'The winner chooses **Attacker** or **Defender**, as the mission pack describes.'),
+      c('edges', 'do', 'Agree which **battlefield edges** match the Attacker’s and Defender’s edges on the map.'),
+      c('roll', 'do', '**Roll off**. The winner decides who is the **Attacker** and who is the **Defender**.'),
     ],
-    summary: ['The deployment map shows which zone belongs to the Attacker and which to the Defender.'],
+    summary: ['The map shows each player’s deployment zone and territory (the half of the battlefield containing their zone).'],
     dice: [{ label: 'Roll-off', expr: 'D6', note: 'Highest wins; re-roll ties' }],
+  },
+  {
+    id: 'secondaries',
+    title: 'Select secondary missions',
+    overview: 'Secondary missions are extra ways to score VP.',
+    actor: 'both',
+    checklist: [
+      k('skip', 'think', 'For your **first few games** you can skip secondary missions and just play the primary mission.'),
+      c('choose', 'do', 'Secretly note whether you will use **Tactical** or **Fixed** secondary missions. If Fixed, note which **two**. Then reveal.'),
+      c('fixed', 'check', '**Fixed**: your two cards are face-up and active **all game**, and can’t be discarded.'),
+      c('tactical', 'check', '**Tactical**: shuffle your deck. You draw cards at the **start of each of your Command phases** (see the Command phase).'),
+      c('which', 'think', 'Fixed is predictable. Tactical adapts, but you may draw cards you can’t achieve.'),
+    ],
+    summary: ['Secondary missions are checked at the end of **every** turn, for **both** players.'],
   },
   {
     id: 'formations',
@@ -147,9 +199,10 @@ export const PRE_BATTLE: Step[] = [
     overview: 'Secretly note how your army starts the battle.',
     actor: 'both',
     checklist: [
-      c('reserves', 'do', 'Note which units start in **Reserves** (Deep Strike or Strategic Reserves).'),
       c('embark', 'do', 'Note which units start **embarked** in Transports.'),
-      c('limit', 'check', 'Reserves stay within the **points limit** your mission pack gives.'),
+      c('reserves', 'do', 'Note which units start in **Strategic Reserves**.'),
+      c('reveal', 'do', 'Reveal your choices.'),
+      c('limit', 'check', 'Reserves stay within the **points limit** for reserves.'),
       c('deadline', 'check', 'Strategic Reserves must arrive by the **end of battle round 3** or they count as destroyed.'),
       c('fast', 'think', 'A fast unit kept in reserve can **grab an objective** late in the game.'),
     ],
@@ -159,40 +212,53 @@ export const PRE_BATTLE: Step[] = [
   {
     id: 'deploy',
     title: 'Deploy armies',
-    overview: 'Place your units on the battlefield.',
+    overview: 'Take turns placing units, one at a time.',
     actor: 'both',
     checklist: [
-      c('alternate', 'do', 'Take turns setting up units, as the mission says.'),
+      c('alternate', 'do', 'Take turns setting up **one unit at a time**, starting with the **Defender**. Units in Strategic Reserves aren’t set up.'),
       c('wholly', 'check', 'Every model is **wholly within** your deployment zone (unless an ability such as **Infiltrators** says otherwise).'),
+      c('titanic', 'check', 'After setting up a **TITANIC** unit, skip your next go.'),
+      c('rest', 'check', 'Once you have finished, your opponent sets up all their remaining units.'),
       c('hide', 'think', 'Hide valuable units **out of sight** of enemy guns.'),
-      c('screen', 'think', 'Spread cheap units out to **block landing spots** for enemy Deep Strike.'),
+      c('screen', 'think', 'Spread cheap units out to **block landing spots** for enemy reserves.'),
     ],
     summary: ['Units with **Infiltrators** can deploy outside your zone, far enough from the enemy (see the ability).'],
   },
   {
-    id: 'prebattle',
-    title: 'Resolve pre-battle abilities',
-    overview: 'Use abilities that happen before the first turn, such as Scouts moves.',
+    id: 'redeploy',
+    title: 'Redeploy units',
+    overview: 'Resolve rules that let you move units after deployment.',
     actor: 'both',
     checklist: [
-      c('scouts', 'do', 'Make **Scouts** moves and other pre-battle abilities, alternating as the rules say.'),
-      c('check', 'check', 'Read the abilities on your units. Check the **Abilities that may apply** list below.'),
+      c('alternate', 'do', 'Players alternate resolving **redeploy** rules, starting with the **Attacker**.'),
+      c('reserves', 'check', 'Units moved into Strategic Reserves here **don’t count** towards the reserves points limit.'),
     ],
-    summary: ['Players usually alternate, starting with the player who will take the first turn. Check your rulebook.'],
-    helper: 'abilities',
+    summary: ['Only some units have redeploy rules. If neither army has any, skip this step.'],
   },
   {
     id: 'first',
-    title: 'Determine who goes first',
+    title: 'Determine first turn',
     overview: 'Decide who takes the first turn of every battle round.',
     actor: 'both',
     checklist: [
-      c('roll', 'do', '**Roll off** (or follow the mission pack). The winner goes first in every round.'),
+      c('roll', 'do', '**Roll off**. The winner takes the **first turn** in every battle round.'),
       c('second', 'think', 'Going second lets you **react** to your opponent and often score last.'),
     ],
     summary: ['The battle lasts 5 battle rounds. Each round, both players take one turn.'],
     dice: [{ label: 'Roll-off', expr: 'D6' }],
     helper: 'firstTurn',
+  },
+  {
+    id: 'prebattle',
+    title: 'Resolve pre-battle rules',
+    overview: 'Use abilities that happen before the first turn, such as Scouts moves.',
+    actor: 'both',
+    checklist: [
+      c('alternate', 'do', 'Players alternate resolving **pre-battle rules** (e.g. **Scouts** moves), starting with the player who takes the **first turn**.'),
+      c('check', 'check', 'Read the abilities on your units. Check the **Abilities that may apply** list below.'),
+    ],
+    summary: ['After this step the first battle round begins.'],
+    helper: 'abilities',
   },
 ];
 
@@ -240,7 +306,8 @@ export const TURN: Phase[] = [
         actor: 'both',
         checklist: [
           c('gain', 'do', '**Both players gain 1CP**, not just the active player.'),
-          c('extra', 'check', 'Gaining **extra CP** from other rules may be limited. Check before adding more.'),
+          m('extra', 'check', 'Apart from this 1CP, each player can gain at most **1 extra CP per battle round** from all other rules, including discarding secondary missions.'),
+          k('extra-casual', 'check', 'Gaining **extra CP** from other rules may be limited. Agree how you are handling it.'),
           c('save', 'think', 'Plan to keep **1–2CP** for reacting during your opponent’s turn.'),
         ],
         summary: ['You spend CP on **Stratagems**. Each Stratagem can normally be used once per phase, and a unit can be targeted by only one Stratagem per phase.'],
@@ -268,13 +335,14 @@ export const TURN: Phase[] = [
       },
       {
         id: 'cmd-abilities',
-        title: 'Command abilities and scoring',
+        title: 'Command abilities, missions and scoring',
         overview: 'Use Command phase abilities and score anything your mission scores now.',
         actor: 'active',
         checklist: [
           c('abilities', 'do', 'Use abilities that happen **in or at the end of the Command phase** (healing, orders, faction rules).'),
           c('primary', 'check', 'Does your mission score **primary VP in the Command phase**? If so, score now.'),
-          c('secondary', 'check', 'Draw or choose **secondary missions** now if your mission pack says so.'),
+          c('draw', 'do', 'Using **Tactical** secondary missions? Draw two cards at the **start** of your Command phase (as your mission deck describes). They are active for you.'),
+          c('swap', 'check', '**Once per battle**, at the end of your Command phase, you can spend **1CP** to discard one active Tactical secondary and draw a new one.'),
         ],
         summary: ['Missions differ in when they score. Some score here, others at the end of the turn.'],
         helper: 'abilities',
@@ -300,6 +368,7 @@ export const TURN: Phase[] = [
           c('advance', 'check', 'An **Advance** adds a D6 to M, but then the unit **can’t charge** and can only shoot **[ASSAULT]** weapons.'),
           c('fallback', 'check', 'Falling Back: **Ordered Retreat** (not if Battle-shocked) or **Desperate Escape**. Desperate Escape needs hazard rolls and a Battle-shock test. Units that Fall Back normally **can’t shoot or charge**.'),
           c('fly', 'check', '**FLY** units must declare **taking to the skies** before they move.'),
+          c('disembark', 'check', 'Units **disembarking** from a Transport use different move types depending on whether the Transport made a normal move or Advanced. Check the rulebook.'),
           c('objectives', 'think', 'End moves **on objectives** (usually within 3" of the marker; check your mission).'),
           c('los', 'think', 'Stay **out of sight** of the enemy’s big guns, but **within range** of what you want to shoot.'),
           c('gaps', 'think', 'Don’t leave gaps where enemy units can **Deep Strike** next to your weak units.'),
@@ -505,13 +574,18 @@ export const TURN: Phase[] = [
         checklist: [
           c('rules', 'do', 'Resolve rules that happen at the **end of the turn**.'),
           c('control', 'do', 'Check **objective control**: add up the **OC** of each player’s models in range of each marker. The higher total controls it.'),
-          c('score', 'do', 'Score **primary** and **secondary** VP your mission gives now.'),
-          c('cards', 'do', 'Discard or draw secondary missions as your mission pack says.'),
+          c('primary', 'do', 'Score **primary** VP if your Primary Mission scores at this point.'),
+          c('secondary', 'do', '**Both players**, starting with the active player: score any **secondary missions** achieved. With Tactical missions, discard each one you achieve.'),
+          c('discard', 'do', 'Active player with Tactical missions: you can **discard** active secondaries you don’t want, gaining **1CP** for doing so.'),
           c('shocked', 'check', 'Battle-shocked units count as **OC 0**.'),
-          c('end', 'check', 'If both players have had a turn, the **battle round ends**. The battle ends after **round 5** unless the mission says otherwise.'),
+          m('caps', 'check', 'VP limits: **primary** up to **45VP** (max **15** per battle round); **secondary** up to **45VP** (max **15** per round, and **20** per Fixed card). VP over a limit are lost.'),
+          c('end', 'check', 'If both players have had a turn, the **battle round ends**. The battle ends after **round 5**, and players keep taking turns even if one army has been wiped out.'),
           c('cp', 'think', 'Keep some **CP** for your opponent’s turn.'),
         ],
-        summary: ['Write scores down as you go. The scoreboard at the top keeps a running total.'],
+        summary: [
+          'Write scores down as you go. The scoreboard at the top keeps a running total.',
+          'At the end of the battle, the player with the most VP wins. Equal VP is a draw.',
+        ],
         helper: 'score',
       },
     ],
@@ -519,6 +593,39 @@ export const TURN: Phase[] = [
 ];
 
 export const MAX_ROUNDS = 5;
+
+/** What changes between a casual game and matched (event / tournament) play. */
+export const PLAY_STYLES: { style: PlayStyle; title: string; blurb: string; points: string[] }[] = [
+  {
+    style: 'casual',
+    title: 'Casual game',
+    blurb: 'A friendly game at home or the club. Play the core rules, agree everything else with your opponent, and keep it moving.',
+    points: [
+      'The **core rules** are the same as in matched play: turn order, the attack sequence, objectives and OC, Battle-shock, CP and Stratagems.',
+      'Agree the **mission and table** together. Any table size and terrain you like is fine. Use plenty of line-of-sight-blocking terrain.',
+      'For your first games, play **small** (around 500–1000 points) and skip **secondary missions**.',
+      'You can ignore event extras: Force Disposition cards, terrain layouts, VP caps, the extra-CP limit and Battle Ready VP. Use any you both like.',
+      'If you hit a rules question you can’t settle, **roll off** and look it up after the game.',
+    ],
+  },
+  {
+    style: 'matched',
+    title: 'Matched play / event',
+    blurb: 'Tournaments and organised events, following the Warhammer Event Companion.',
+    points: [
+      '**Lists must be legal**: within the points limit, using the current points and rules updates (the Warhammer 40,000 app is the reference).',
+      '**Missions** come from the Chapter Approved Mission Deck. Your Primary Mission is set by your **opponent’s Force Disposition** card.',
+      'The battlefield is **44" × 60"**, using the event **terrain layout** (A, B or C) for your missions.',
+      '**Secondary missions**: choose Tactical or two Fixed missions before the battle.',
+      '**Primary VP**: up to 45VP, max 15 per battle round.',
+      '**Secondary VP**: up to 45VP, max 15 per battle round, and 20 per Fixed card.',
+      '**Battle Ready** (painted) army: +10VP.',
+      '**CP**: apart from the 1CP each Command phase, at most **1 extra CP per battle round**.',
+      'The pre-battle steps follow a set order (Defender deploys first, Attacker redeploys first, and so on).',
+      'Rules questions: the app’s **Rules Appendix**, errata, FAQs and rules updates decide them.',
+    ],
+  },
+];
 
 /** Short glossary for quick look-up in Play mode. */
 export const GLOSSARY: { term: string; text: string }[] = [

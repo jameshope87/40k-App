@@ -857,3 +857,33 @@ details > summary::marker {
   color: var(--muted);
   margin: 2px 0;
 }
+
+/* Segmented toggles and small pills */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.segmented button {
+  border: 0;
+  border-radius: 0;
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  background: transparent;
+}
+.segmented button.active {
+  background: var(--gold);
+  color: #16130a;
+  font-weight: 700;
+}
+.tiny-pill {
+  font-size: 0.65rem;
+  padding: 0 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.issues-ok {
+  border-color: color-mix(in srgb, var(--gold) 60%, var(--line));
+}

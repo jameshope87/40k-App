@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { gamesStore, saveGame, useStore } from '../../store';
 import { navigate } from '../../router';
-import { type GameState, currentStep, jumpTo, nextStep, prevStep, vp } from '../../play/game';
-import { DISCLAIMER, GLOSSARY, MAX_ROUNDS, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
+import { BATTLE_READY_VP, type GameState, currentStep, jumpTo, nextStep, normalisePreStep, prevStep, styleOf, vp } from '../../play/game';
+import { DISCLAIMER, GLOSSARY, MAX_ROUNDS, PLAY_STYLES, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
 import { Counter, Modal, Rich } from '../common';
 import StepHelper from './StepHelpers';
 import StepGuide from './StepGuide';
@@ -46,7 +46,10 @@ export default function GameView({ uid }: { uid: string }) {
 
   const nextLabel = (() => {
     if (game.stage === 'ended') return 'Game over';
-    if (game.stage === 'prebattle') return game.preStep < PRE_BATTLE.length - 1 ? `Next: ${PRE_BATTLE[game.preStep + 1].title}` : 'Begin battle round 1';
+    if (game.stage === 'prebattle') {
+      const n = nextStep(game);
+      return n.stage === 'prebattle' ? `Next: ${PRE_BATTLE[n.preStep].title}` : 'Begin battle round 1';
+    }
     if (phase && game.step < phase.steps.length - 1) return `Next: ${phase.steps[game.step + 1].title}`;
     if (game.phase < TURN.length - 1) return `Next: ${TURN[game.phase + 1].name}`;
     const second = game.activePlayer !== game.firstPlayer;
@@ -64,13 +67,6 @@ export default function GameView({ uid }: { uid: string }) {
           {game.stage === 'prebattle' ? 'Pre-battle' : game.stage === 'ended' ? 'Battle over' : `Round ${game.round}/${MAX_ROUNDS} · ${active.name}’s turn`}
           <div className="sub">{game.name}</div>
         </div>
-        <button
-          className="small"
-          onClick={() => update((g) => (g.guidance = (g.guidance ?? 'full') === 'full' ? 'compact' : 'full'))}
-          title="Switch between full guidance and a compact checklist"
-        >
-          {(game.guidance ?? 'full') === 'full' ? 'Guide: Full' : 'Guide: Compact'}
-        </button>
       </div>
       <div className="page" style={{ paddingBottom: 0 }}>
         <div className="scoreboard">
@@ -98,6 +94,32 @@ export default function GameView({ uid }: { uid: string }) {
             ))}
           </div>
         )}
+
+        <div className="row small" style={{ margin: '8px 0 0', gap: 6 }}>
+          <span className="segmented" role="group" aria-label="Play style">
+            {(['casual', 'matched'] as const).map((st) => (
+              <button
+                key={st}
+                className={styleOf(game) === st ? 'active' : ''}
+                onClick={() =>
+                  update((g) => {
+                    g.style = st;
+                    normalisePreStep(g);
+                  })
+                }
+              >
+                {st === 'casual' ? 'Casual' : 'Matched / event'}
+              </button>
+            ))}
+          </span>
+          <span className="segmented" role="group" aria-label="Guidance">
+            {(['full', 'compact'] as const).map((gd) => (
+              <button key={gd} className={(game.guidance ?? 'full') === gd ? 'active' : ''} onClick={() => update((g) => (g.guidance = gd))}>
+                {gd === 'full' ? 'Full guide' : 'Compact'}
+              </button>
+            ))}
+          </span>
+        </div>
 
         <div className="tabs" style={{ margin: '10px 0' }}>
           {(['step', 'armies', 'log', 'glossary'] as const).map((t) => (
@@ -167,6 +189,25 @@ export default function GameView({ uid }: { uid: string }) {
         )}
 
         {panel === 'glossary' && (
+          <div className="grid2" style={{ marginBottom: 10 }}>
+            {PLAY_STYLES.map((ps) => (
+              <div key={ps.style} className={`card ${styleOf(game) === ps.style ? 'issues-ok' : ''}`}>
+                <h3>
+                  {ps.title} {styleOf(game) === ps.style && <span className="pill gold">this game</span>}
+                </h3>
+                <p className="small muted">{ps.blurb}</p>
+                <ul className="summary-list small">
+                  {ps.points.map((pt) => (
+                    <li key={pt}>
+                      <Rich text={pt} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        {panel === 'glossary' && (
           <div className="card">
             {GLOSSARY.map((g) => (
               <p key={g.term} className="small">
@@ -200,6 +241,15 @@ export default function GameView({ uid }: { uid: string }) {
                 <Counter label="Primary" value={p.vpPrimary} onChange={(v) => update((g) => (g.players[i].vpPrimary = v))} />
                 <Counter label="Secondary" value={p.vpSecondary} onChange={(v) => update((g) => (g.players[i].vpSecondary = v))} />
               </div>
+              <label className="opt small" style={{ marginTop: 6 }}>
+                <input type="checkbox" checked={!!p.battleReady} onChange={(e) => update((g) => (g.players[i].battleReady = e.target.checked))} />
+                <span className="name">Battle Ready army (+{BATTLE_READY_VP}VP)</span>
+              </label>
+              {styleOf(game) === 'matched' && (
+                <p className={`tiny ${p.vpPrimary > 45 || p.vpSecondary > 45 ? 'red' : 'muted'}`} style={{ margin: 0 }}>
+                  Matched play limits: primary {p.vpPrimary}/45, secondary {p.vpSecondary}/45 (max 15 of each per battle round).
+                </p>
+              )}
             </div>
           ))}
         </Modal>

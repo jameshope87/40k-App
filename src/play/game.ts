@@ -1,7 +1,7 @@
 /** Game (Play mode) state. Plain JSON so it can be saved and resumed. */
 import type { UnitSheet } from '../roster/summary';
 import { parseNum } from './dice';
-import { MAX_ROUNDS, PRE_BATTLE, TURN } from './rules';
+import { MAX_ROUNDS, PRE_BATTLE, TURN, type PlayStyle, applies } from './rules';
 import { uid } from '../roster/model';
 
 export type MoveKind = 'none' | 'stationary' | 'normal' | 'advance' | 'fallback' | 'ingress';
@@ -43,6 +43,8 @@ export interface PlayerState {
   cp: number;
   vpPrimary: number;
   vpSecondary: number;
+  /** Army painted to a Battle Ready standard (+10VP in matched play). */
+  battleReady?: boolean;
   units: UnitState[];
 }
 
@@ -72,6 +74,8 @@ export interface GameState {
   checks?: Record<string, boolean>;
   /** How much guidance Play mode shows. */
   guidance?: 'full' | 'compact';
+  /** Casual game or matched play (event rules). */
+  style?: PlayStyle;
   log: LogEntry[];
 }
 
@@ -193,8 +197,31 @@ export function leadership(u: UnitState) {
   return parseNum(u.sheet.stats[0]?.Ld ?? '7');
 }
 
+export const BATTLE_READY_VP = 10;
+
 export function vp(p: PlayerState) {
-  return p.vpPrimary + p.vpSecondary;
+  return p.vpPrimary + p.vpSecondary + (p.battleReady ? BATTLE_READY_VP : 0);
+}
+
+export function styleOf(g: GameState): PlayStyle {
+  return g.style ?? 'casual';
+}
+
+/** Index of the next/previous pre-battle step that applies to the game's play style. */
+function preStepFrom(g: GameState, from: number, dir: 1 | -1): number | undefined {
+  for (let i = from + dir; i >= 0 && i < PRE_BATTLE.length; i += dir) if (applies(PRE_BATTLE[i], styleOf(g))) return i;
+  return undefined;
+}
+
+/** Make sure the current pre-battle step applies (e.g. after switching play style). */
+export function normalisePreStep(g: GameState) {
+  if (g.stage === 'prebattle' && !applies(PRE_BATTLE[g.preStep], styleOf(g))) g.preStep = preStepFrom(g, g.preStep, 1) ?? preStepFrom(g, g.preStep, -1) ?? 0;
+}
+
+/** Pre-battle position for display: [number, total] counting only steps that apply. */
+export function preBattleProgress(g: GameState): [number, number] {
+  const list = PRE_BATTLE.filter((s) => applies(s, styleOf(g)));
+  return [list.indexOf(PRE_BATTLE[g.preStep]) + 1, list.length];
 }
 
 // ---- navigation -----------------------------------------------------------
@@ -225,7 +252,8 @@ export function log(g: GameState, text: string, player: number = g.activePlayer)
 export function nextStep(prev: GameState): GameState {
   const g = structuredClone(prev);
   if (g.stage === 'prebattle') {
-    if (g.preStep < PRE_BATTLE.length - 1) g.preStep++;
+    const next = preStepFrom(g, g.preStep, 1);
+    if (next !== undefined) g.preStep = next;
     else {
       g.stage = 'battle';
       g.round = 1;
@@ -268,7 +296,7 @@ export function nextStep(prev: GameState): GameState {
 export function prevStep(prev: GameState): GameState {
   const g = structuredClone(prev);
   if (g.stage === 'prebattle') {
-    g.preStep = Math.max(0, g.preStep - 1);
+    g.preStep = preStepFrom(g, g.preStep, -1) ?? g.preStep;
     return g;
   }
   if (g.stage === 'ended') {
@@ -288,7 +316,7 @@ export function prevStep(prev: GameState): GameState {
     g.step = TURN[g.phase].steps.length - 1;
   } else {
     g.stage = 'prebattle';
-    g.preStep = PRE_BATTLE.length - 1;
+    g.preStep = preStepFrom(g, PRE_BATTLE.length, -1) ?? PRE_BATTLE.length - 1;
   }
   return g;
 }

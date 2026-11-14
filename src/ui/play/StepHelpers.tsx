@@ -273,16 +273,30 @@ function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
 }
 
 function ScoreHelper({ game, update }: { game: GameState; update: Update }) {
-  const side = game.activePlayer;
+  // Both players can score at the end of a turn; the active player goes first.
+  const order = [game.activePlayer, game.activePlayer === 0 ? 1 : 0] as const;
+  return (
+    <div className="stack">
+      {order.map((side) => (
+        <ScoreRow key={side} game={game} side={side} update={update} />
+      ))}
+    </div>
+  );
+}
+
+function ScoreRow({ game, side, update }: { game: GameState; side: 0 | 1; update: Update }) {
   const p = game.players[side];
   const add = (field: 'vpPrimary' | 'vpSecondary', n: number) =>
     update((g) => {
       g.players[side][field] = Math.max(0, g.players[side][field] + n);
-      if (n > 0) log(g, `${p.name} scored ${n} ${field === 'vpPrimary' ? 'primary' : 'secondary'} VP.`);
+      if (n > 0) log(g, `${p.name} scored ${n} ${field === 'vpPrimary' ? 'primary' : 'secondary'} VP.`, side);
     });
   return (
     <div className="row">
-      <span className="small">{p.name}:</span>
+      <span className="small">
+        <b>{p.name}</b>
+        {side === game.activePlayer ? ' (active)' : ''}:
+      </span>
       <span className="row nowrap">
         Primary
         {[1, 2, 3, 5].map((n) => (
