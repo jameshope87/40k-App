@@ -168,9 +168,37 @@ export async function fetchDataFileText(src: DataSource, file: RepoFile | string
 }
 
 /** Store a user-supplied file (e.g. picked from the device) under a source. */
-export async function storeLocalFile(src: DataSource, name: string, text: string) {
-  parseDataFile(text); // validate
+const GAME_SYSTEM_FILES_KEY = 'muster.gameSystemFiles';
+
+/** Remember which file of a source is the game system, whatever it is called. */
+function rememberGameSystemFile(src: DataSource, name: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem(GAME_SYSTEM_FILES_KEY) ?? '{}') as Record<string, string>;
+    map[sourceKey(src)] = name;
+    localStorage.setItem(GAME_SYSTEM_FILES_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+function rememberedGameSystemFile(src: DataSource): string | undefined {
+  try {
+    return (JSON.parse(localStorage.getItem(GAME_SYSTEM_FILES_KEY) ?? '{}') as Record<string, string>)[sourceKey(src)];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Store a user-supplied file (e.g. picked from the device) under a source.
+ * Returns what kind of file it was. Throws if it isn't a BattleScribe data file.
+ */
+export async function storeLocalFile(src: DataSource, name: string, text: string): Promise<{ kind: 'gameSystem' | 'catalogue'; name: string }> {
+  const data = parseDataFile(text); // validate
   await cacheSet(`${sourceKey(src)}/${name}`, { text, fetchedAt: Date.now() });
+  const kind = data.type === 'gameSystem' ? 'gameSystem' : 'catalogue';
+  if (kind === 'gameSystem') rememberGameSystemFile(src, name);
+  return { kind, name: data.name };
 }
 
 export async function listCachedFiles(src: DataSource): Promise<string[]> {
@@ -236,7 +264,12 @@ export class LoadedSource {
   ) {}
 
   get gameSystemFile() {
-    return this.repoFiles.find((f) => /\.gst$/i.test(f.name)) ?? this.repoFiles.find((f) => /warhammer 40,000\.json$/i.test(f.name));
+    const remembered = rememberedGameSystemFile(this.source);
+    return (
+      (remembered ? this.repoFiles.find((f) => f.name === remembered) : undefined) ??
+      this.repoFiles.find((f) => /\.gst$/i.test(f.name)) ??
+      this.repoFiles.find((f) => /warhammer 40,000.*\.json$/i.test(f.name))
+    );
   }
 
   /** Catalogue files that can be chosen as an army (i.e. not libraries). */
@@ -313,6 +346,11 @@ export class LoadedSource {
 }
 
 const loaded = new Map<string, Promise<LoadedSource>>();
+
+/** Forget a loaded source so it is read again (e.g. after files were added from the device). */
+export function forgetSource(src: DataSource) {
+  loaded.delete(sourceKey(src));
+}
 
 /** Load (once per session) a source's file list and game system. */
 export function loadSource(src: DataSource, onProgress?: ProgressFn, opts: { refresh?: boolean } = {}): Promise<LoadedSource> {

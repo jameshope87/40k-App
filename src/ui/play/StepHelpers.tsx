@@ -191,9 +191,23 @@ function AttackList({ game, side, kind, openAttack }: { game: GameState; side: 0
   const list = formations(game.players[side]).filter(
     (f) => alive(f) && !f.lead.inReserves && f.members.some((u) => u.modelsRemaining > 0 && u.sheet.weapons.some((w) => w.kind === kind)),
   );
-  if (!list.length) return <p className="small muted">{game.players[side].name} has no units that can make {kind} attacks.</p>;
+  const calculator = (
+    <button className="small" onClick={() => openAttack(side, '', kind)}>
+      🧮 Attack calculator{list.length ? ' (enter stats)' : ''}
+    </button>
+  );
+  if (!list.length)
+    return (
+      <div className="row">
+        {!game.players[side].units.length ? null : <span className="small muted">{game.players[side].name} has no units that can make {kind} attacks.</span>}
+        {calculator}
+      </div>
+    );
   return (
     <div>
+      <div className="row" style={{ justifyContent: 'flex-end' }}>
+        {calculator}
+      </div>
       {list.map((f) => {
         const u = f.lead;
         const blocked = kind === 'ranged' && u.moved === 'fallback';
@@ -357,7 +371,12 @@ function MusterHelper({ game }: { game: GameState }) {
   );
 }
 
+/** Helpers that only make sense when the player has an army list loaded. */
+const NEEDS_UNITS: Helper[] = ['battleshock', 'move', 'reserves', 'charge', 'muster', 'deploy'];
+
 export default function StepHelper({ helper, game, update, openAttack }: Props) {
+  const hasUnits = helper === 'deploy' || helper === 'muster' ? game.players.some((p) => p.units.length) : game.players[game.activePlayer].units.length > 0;
+  if (NEEDS_UNITS.includes(helper) && !hasUnits) return null;
   switch (helper) {
     case 'muster':
       return <MusterHelper game={game} />;

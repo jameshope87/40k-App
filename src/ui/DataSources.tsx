@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { KNOWN_SOURCES, type DataSource, listCachedFiles, loadSource, storeLocalFile } from '../bsdata/loader';
+import { KNOWN_SOURCES, type DataSource, forgetSource, listCachedFiles, loadSource, storeLocalFile } from '../bsdata/loader';
+import { clearIndexCache } from '../useCatalogue';
 import { settingsStore, useStore } from '../store';
 import { navigate } from '../router';
 
@@ -42,14 +43,19 @@ export default function DataSources() {
 
   const upload = async (files: FileList | null) => {
     if (!files) return;
+    const lines: string[] = [];
     for (const f of Array.from(files)) {
+      setStatus(`Reading ${f.name}…`);
       try {
-        await storeLocalFile(settings.source, f.name, await f.text());
-        setStatus(`Stored ${f.name}`);
+        const r = await storeLocalFile(settings.source, f.name, await f.text());
+        lines.push(`✓ ${f.name}${r.kind === 'gameSystem' ? ' (game system)' : ''}`);
       } catch (e) {
-        setStatus(`${f.name}: ${String(e)}`);
+        lines.push(`✗ ${f.name}: not a BattleScribe data file (${(e as Error).message ?? e})`);
       }
     }
+    forgetSource(settings.source);
+    clearIndexCache();
+    setStatus(`${lines.join('\n')}\nOpen “New list” to choose a faction from these files.`);
     refreshCached();
   };
 
@@ -93,10 +99,10 @@ export default function DataSources() {
             <button onClick={update}>Download latest data</button>
             <label className="btn">
               Load files from device…
-              <input type="file" multiple accept=".json,.cat,.gst" hidden onChange={(e) => upload(e.target.files)} />
+              <input type="file" multiple hidden onChange={(e) => (upload(e.target.files), (e.target.value = ''))} />
             </label>
           </div>
-          {status && <p className="small">{status}</p>}
+          {status && <p className="small" style={{ whiteSpace: 'pre-wrap' }}>{status}</p>}
           {!!cached.length && (
             <details>
               <summary className="small muted">Cached files</summary>

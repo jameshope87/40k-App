@@ -5,6 +5,11 @@ import { GameIndex } from './bsdata/index';
 
 const indexCache = new Map<string, GameIndex>();
 
+/** Drop built indexes, e.g. after new data files were added. */
+export function clearIndexCache() {
+  indexCache.clear();
+}
+
 export async function getIndex(source: DataSource, catalogueFile: string, onProgress?: (m: string) => void): Promise<GameIndex> {
   const key = `${source.repo}@${source.branch}/${catalogueFile}`;
   const hit = indexCache.get(key);

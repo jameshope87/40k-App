@@ -93,7 +93,7 @@ export default function PlaySetup() {
               <label className="field">
                 <span>Army list</span>
                 <select value={lists[i]} onChange={(e) => setLists(lists.map((l, k) => (k === i ? e.target.value : l)))}>
-                  <option value="">No list (track score and dice only)</option>
+                  <option value="">No list: guided game (rules, dice, scoring)</option>
                   {rosters.map((r) => (
                     <option key={r.uid} value={r.uid}>
                       {r.name} — {r.catalogueName}
@@ -103,6 +103,10 @@ export default function PlaySetup() {
               </label>
             </div>
           ))}
+        </div>
+        <div className="card small">
+          <b>No army lists? No problem.</b> Every step of the game gets a checklist of what to do, check and think about, plus dice rollers, score tracking and an attack
+          calculator where you type in the stats. Army lists add unit tracking and fill in stats for you.
         </div>
         <p className="small muted">
           Tip: add your opponent’s list too. The attack helper then fills in their Toughness, saves and wounds automatically and tracks casualties.

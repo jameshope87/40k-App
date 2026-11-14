@@ -99,25 +99,41 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
   const attackerPlayer = game.players[attackerSide];
   const defenderSide = attackerSide === 0 ? 1 : 0;
   const defender = game.players[defenderSide];
-  const attacker = attackerPlayer.units.find((u) => u.uid === attackerUid)!;
+  // No attacker unit means a hand-entered attack (no army lists needed).
+  const attacker = attackerUid ? attackerPlayer.units.find((u) => u.uid === attackerUid) : undefined;
   // An attached unit (bodyguard + leaders) attacks together.
-  const formation = formationOf(attackerPlayer, attacker);
-  const attackerName = formationName(formation, unitLabel);
-  const weapons: { w: WeaponProfile; m: UnitState }[] = formation.members
+  const formation = attacker ? formationOf(attackerPlayer, attacker) : undefined;
+  const attackerName = formation ? formationName(formation, unitLabel) : 'Attack calculator';
+  const weapons: { w: WeaponProfile; m: UnitState }[] = (formation?.members ?? [])
     .filter((m) => m.modelsRemaining > 0)
     .flatMap((m) => m.sheet.weapons.filter((w) => w.kind === kind).map((w) => ({ w, m })));
-  const advanced = attacker.moved === 'advance';
+  const advanced = attacker?.moved === 'advance';
 
-  const [wIdx, setWIdx] = useState(() => Math.max(0, weapons.findIndex(({ w }) => !advanced || parseAbilities(w.keywords).torrent || w.keywords.some((k) => /assault/i.test(k)))));
-  const weapon: WeaponProfile | undefined = weapons[wIdx]?.w;
+  // -1 = weapon entered by hand
+  const [wIdx, setWIdx] = useState(() =>
+    weapons.length ? Math.max(0, weapons.findIndex(({ w }) => !advanced || parseAbilities(w.keywords).torrent || w.keywords.some((k) => /assault/i.test(k)))) : -1,
+  );
+  const [manual, setManual] = useState<WeaponProfile>({
+    name: kind === 'ranged' ? 'Ranged weapon' : 'Melee weapon',
+    kind,
+    count: 1,
+    range: '',
+    attacks: '2',
+    skill: '3+',
+    strength: '4',
+    ap: '0',
+    damage: '1',
+    keywords: [],
+  });
+  const weapon: WeaponProfile | undefined = wIdx < 0 ? manual : weapons[wIdx]?.w;
   const scaled = (o?: { w: WeaponProfile; m: UnitState }) => (o ? Math.max(1, Math.round((o.w.count * o.m.modelsRemaining) / Math.max(1, o.m.startingModels))) : 1);
   const defenderGroups = formations(defender).filter((f) => f.members.some((u) => u.modelsRemaining > 0));
   const [targetUid, setTargetUid] = useState<string>(() => defenderGroups.find((f) => f.lead.modelsRemaining > 0)?.lead.uid ?? 'custom');
   const [custom, setCustom] = useState<TargetProfile>(CUSTOM);
   const [opts, setOpts] = useState<AttackOptions>(() => ({
-    ...defaultOptions(scaled(weapons[0])),
-    charged: attacker.charged,
-    remainedStationary: attacker.moved === 'stationary',
+    ...defaultOptions(weapons.length ? scaled(weapons[0]) : 5),
+    charged: !!attacker?.charged,
+    remainedStationary: attacker?.moved === 'stationary',
   }));
   const [stages, setStages] = useState<{ a?: AttackCountStage; h?: HitStage; w?: WoundStage; s?: SaveStage; d?: DamageStage }>({});
   const [applied, setApplied] = useState(false);
@@ -132,16 +148,6 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
     setStages({});
     setApplied(false);
   };
-
-  if (!weapons.length) {
-    return (
-      <Modal onClose={onClose} title="Attack">
-        <p>
-          {attackerName} has no {kind} weapons in its datasheet.
-        </p>
-      </Modal>
-    );
-  }
 
   const next = () => {
     if (!plan) return;
@@ -164,7 +170,7 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
   const apply = () => {
     if (!stages.d || !weapon) return;
     const g = structuredClone(game);
-    for (const m of formation.members) {
+    for (const m of formation?.members ?? []) {
       const atk = g.players[attackerSide].units.find((u) => u.uid === m.uid)!;
       if (kind === 'ranged') atk.shot = true;
       else atk.fought = true;
@@ -188,15 +194,20 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
   const wt = weapon ? woundTarget(parseNum(weapon.strength), target.toughness) : 4;
 
   return (
-    <Modal onClose={onClose} title={`${kind === 'ranged' ? 'Shoot' : 'Fight'}: ${attackerName}`}>
+    <Modal onClose={onClose} title={attacker ? `${kind === 'ranged' ? 'Shoot' : 'Fight'}: ${attackerName}` : `${attackerName} (${kind === 'ranged' ? 'shooting' : 'melee'})`}>
       {advanced && kind === 'ranged' && <p className="small gold">This unit Advanced: only [ASSAULT] weapons can shoot (assault shooting).</p>}
-      {attacker.moved === 'fallback' && <p className="small red">This unit Fell Back this turn and normally cannot shoot or charge.</p>}
+      {attacker?.moved === 'fallback' && <p className="small red">This unit Fell Back this turn and normally cannot shoot or charge.</p>}
       {targetUnit && formationOf(defender, targetUnit).members.length > 1 && formationOf(defender, targetUnit).lead === targetUnit && (
         <p className="tiny muted">
           Attached unit: attacks are resolved against the bodyguard’s profile. Pick the attached character on its own for attacks that can be allocated to it (e.g. [PRECISION]).
         </p>
       )}
 
+      {!attacker && (
+        <p className="small muted" style={{ marginTop: 0 }}>
+          Enter the attacking weapon’s profile from its datasheet, and the target’s stats. The calculator tells you what to roll at each step.
+        </p>
+      )}
       <label className="field">
         <span>Weapon</span>
         <select
@@ -204,18 +215,46 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
           onChange={(e) => {
             const i = Number(e.target.value);
             setWIdx(i);
-            set({ attackers: scaled(weapons[i]) });
+            if (i >= 0) set({ attackers: scaled(weapons[i]) });
+            else setStages({});
           }}
         >
           {weapons.map(({ w, m }, i) => (
             <option key={`${m.uid}:${w.name}`} value={i}>
-              {formation.members.length > 1 ? `${unitLabel(m)}: ` : ''}
+              {(formation?.members.length ?? 0) > 1 ? `${unitLabel(m)}: ` : ''}
               {w.count}× {w.name} — A{w.attacks} {w.skill} S{w.strength} AP{w.ap} D{w.damage}
               {w.keywords.length ? ` [${w.keywords.join(', ')}]` : ''}
             </option>
           ))}
+          <option value={-1}>Enter weapon stats by hand…</option>
         </select>
       </label>
+      {wIdx < 0 && (
+        <div className="row">
+          {(
+            [
+              ['attacks', 'A', 'e.g. 2 or D6'],
+              ['skill', kind === 'ranged' ? 'BS' : 'WS', 'e.g. 3+'],
+              ['strength', 'S', 'e.g. 4'],
+              ['ap', 'AP', 'e.g. -1'],
+              ['damage', 'D', 'e.g. 1 or D3'],
+            ] as const
+          ).map(([field, label, ph]) => (
+            <label key={field} className="field" style={{ width: 70 }}>
+              <span>{label}</span>
+              <input value={manual[field]} placeholder={ph} onChange={(e) => (setManual({ ...manual, [field]: e.target.value }), setStages({}))} aria-label={label} />
+            </label>
+          ))}
+          <label className="field grow">
+            <span>Weapon abilities (comma separated)</span>
+            <input
+              value={manual.keywords.join(', ')}
+              placeholder="e.g. Lethal Hits, Rapid Fire 1"
+              onChange={(e) => (setManual({ ...manual, keywords: e.target.value.split(',').map((k) => k.trim()).filter(Boolean) }), setStages({}))}
+            />
+          </label>
+        </div>
+      )}
 
       <div className="row">
         <NumField label="Models" value={opts.attackers} onChange={(v) => set({ attackers: Math.max(0, v ?? 0) })} />
@@ -334,6 +373,7 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
                 </b>
                 <span className="muted">{stageHint(i, plan, opts, target)}</span>
               </div>
+              <div className="explain">{stageExplain(i, plan, target)}</div>
               {i === 0 && stages.a && (
                 <>
                   <DiceFaces dice={stages.a.rolls} />
@@ -407,6 +447,28 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
       </div>
     </Modal>
   );
+}
+
+/** Plain-English description of what happens in each stage of the attack sequence. */
+function stageExplain(i: number, plan: ReturnType<typeof planAttack> | undefined, t: TargetProfile) {
+  if (!plan) return '';
+  switch (i) {
+    case 0:
+      return 'Work out how many attacks: number of models × the weapon’s A (roll any dice in A), plus extras such as Blast or Rapid Fire.';
+    case 1:
+      return plan.autoHit
+        ? 'Torrent: every attack hits automatically, so no hit roll is needed.'
+        : `Roll one D6 per attack. Each roll of ${plan.hitOn > 6 ? '6' : `${plan.hitOn}+`} hits. A 6 is a Critical Hit (always hits); a 1 always misses.`;
+    case 2:
+      return `Roll one D6 per hit. Each roll of ${plan.woundOn}+ wounds (S${plan.weapon.strength} against T${t.toughness}). ${plan.critWoundOn < 6 ? `${plan.critWoundOn}+` : 'A 6'} is a Critical Wound.`;
+    case 3:
+      return plan.saveOn > 6
+        ? 'The target has no save that can stop these attacks.'
+        : `The defender rolls one D6 per wound. Each roll of ${plan.saveOn}+ is saved${plan.saveIsInvuln ? ' (invulnerable save)' : ` (Sv${t.save}+ made worse by AP)`}. A 1 always fails.`;
+    case 4:
+      return `Each failed save deals ${plan.damageExpr} damage to one model (${t.wounds}W each). Damage left over when a model dies is lost${plan.fnp ? `. Feel No Pain ${plan.fnp}+ can ignore wounds` : ''}.`;
+  }
+  return '';
 }
 
 function stageHint(i: number, plan: ReturnType<typeof planAttack> | undefined, o: AttackOptions, t: TargetProfile) {

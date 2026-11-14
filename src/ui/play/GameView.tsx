@@ -3,10 +3,9 @@ import { gamesStore, saveGame, useStore } from '../../store';
 import { navigate } from '../../router';
 import { type GameState, currentStep, jumpTo, nextStep, prevStep, vp } from '../../play/game';
 import { DISCLAIMER, GLOSSARY, MAX_ROUNDS, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
-import { parseDice } from '../../play/dice';
 import { Counter, Modal, Rich } from '../common';
-import { openDice } from '../DiceTray';
 import StepHelper from './StepHelpers';
+import StepGuide from './StepGuide';
 import AttackHelper from './AttackHelper';
 import { ArmyPanel } from './UnitPanel';
 import { relevantAbilities, unitLabel } from './abilities';
@@ -65,6 +64,13 @@ export default function GameView({ uid }: { uid: string }) {
           {game.stage === 'prebattle' ? 'Pre-battle' : game.stage === 'ended' ? 'Battle over' : `Round ${game.round}/${MAX_ROUNDS} · ${active.name}’s turn`}
           <div className="sub">{game.name}</div>
         </div>
+        <button
+          className="small"
+          onClick={() => update((g) => (g.guidance = (g.guidance ?? 'full') === 'full' ? 'compact' : 'full'))}
+          title="Switch between full guidance and a compact checklist"
+        >
+          {(game.guidance ?? 'full') === 'full' ? 'Guide: Full' : 'Guide: Compact'}
+        </button>
       </div>
       <div className="page" style={{ paddingBottom: 0 }}>
         <div className="scoreboard">
@@ -116,66 +122,32 @@ export default function GameView({ uid }: { uid: string }) {
         )}
 
         {panel === 'step' && step && game.stage !== 'ended' && (
-          <div className="card step-card">
-            <div className="tiny muted">
-              {game.stage === 'prebattle' ? `Pre-battle step ${game.preStep + 1} of ${PRE_BATTLE.length}` : `${phase?.name} · step ${game.step + 1} of ${phase?.steps.length} · ${active.name} is the active player`}
-            </div>
-            <h2>{step.title}</h2>
-            <ul className="summary-list">
-              {step.summary.map((s, i) => (
-                <li key={i} style={s.startsWith('•') ? { listStyle: 'none', marginLeft: -4 } : undefined}>
-                  <Rich text={s} />
-                </li>
-              ))}
-            </ul>
-            {!!step.dice?.length && (
-              <div className="row" style={{ marginBottom: 10 }}>
-                <span className="small muted">Dice:</span>
-                {step.dice.map((d) => {
-                  const p = parseDice(d.expr);
-                  return (
-                    <button key={d.label} className="small" onClick={() => openDice({ count: Math.max(1, p.count), sides: p.sides || 6, target: d.target, label: d.label })} title={d.note}>
-                      🎲 {d.label} ({d.expr})
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {step.helper && (
-              <div style={{ margin: '10px 0' }}>
-                <StepHelper helper={step.helper} game={game} update={update} openAttack={(side, u, kind) => setAttack({ side, uid: u, kind })} />
-              </div>
-            )}
-            {!!step.watchFor?.length && (
-              <div className="watch" style={{ marginTop: 10 }}>
-                <b>Watch for:</b>
-                <ul className="summary-list" style={{ margin: '4px 0 0' }}>
-                  {step.watchFor.map((w) => (
-                    <li key={w}>
-                      <Rich text={w} />
-                    </li>
+          <StepGuide
+            game={game}
+            phase={phase}
+            step={step}
+            update={update}
+            helper={step.helper ? <StepHelper helper={step.helper} game={game} update={update} openAttack={(side, u, kind) => setAttack({ side, uid: u, kind })} /> : undefined}
+            abilities={
+              abilities.length ? (
+                <details style={{ marginTop: 10 }}>
+                  <summary className="small">
+                    <b>Abilities that may apply</b> <span className="muted">({abilities.length})</span>
+                  </summary>
+                  {abilities.map((a, i) => (
+                    <div key={i} style={{ margin: '6px 0' }}>
+                      <div className="small">
+                        <b>{a.name}</b> <span className="muted">· {unitLabel(a.unit)} ({a.player.name})</span>
+                      </div>
+                      <div className="rule-text muted small">
+                        <Rich text={a.text} />
+                      </div>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
-            {!!abilities.length && (
-              <details style={{ marginTop: 10 }}>
-                <summary className="small">
-                  <b>Abilities that may apply</b> <span className="muted">({abilities.length})</span>
-                </summary>
-                {abilities.map((a, i) => (
-                  <div key={i} style={{ margin: '6px 0' }}>
-                    <div className="small">
-                      <b>{a.name}</b> <span className="muted">· {unitLabel(a.unit)} ({a.player.name})</span>
-                    </div>
-                    <div className="rule-text muted small">
-                      <Rich text={a.text} />
-                    </div>
-                  </div>
-                ))}
-              </details>
-            )}
-          </div>
+                </details>
+              ) : undefined
+            }
+          />
         )}
 
         {panel === 'armies' && <ArmyPanel game={game} update={update} />}

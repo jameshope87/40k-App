@@ -41,9 +41,18 @@ It runs in any modern browser, installs as a PWA (offline capable) and builds as
 - **Restore** either *merges* (keeps the most recently edited copy of each list and game) or *replaces* everything. It also accepts a single exported list.
 - The home screen reminds you if you haven't backed up for 14 days.
 - Records are merged by `uid` and `updatedAt`, ready for future cloud sync.
-- Catalogues are cached in IndexedDB, so the app works offline once a faction has been opened. You can also load `.json`/`.cat`/`.gst` files from your device.
+- Catalogues are cached in IndexedDB, so the app works offline once a faction has been opened. You can also load BattleScribe data files you already have from your device (**Data sources → Load files from device**). The game system file is recognised by its contents, so renamed copies work, and the editor names any linked catalogue that is missing.
 
 ### Play mode
+- **Guided games, with or without army lists.** Every step shows:
+  - a one-line overview and who acts (active player, opponent or both)
+  - a tick-off checklist of what to **do**, **check** and **think about**, saved per turn
+  - what the opponent can react with
+  - common mistakes
+  - a collapsible rules detail
+
+  A **Full / Compact** toggle hides the extra guidance once you know the game. The step content lives in `src/play/rules.ts`.
+- **Attack calculator** with hand-entered weapon and target stats (no list needed). It explains each roll in plain English as you go.
 - **Attached units** act as one unit: one move, one Battle-shock test, one charge. They shoot and fight with every member's weapons, and are listed together. Attacks against them use the bodyguard's profile. The attached characters can also be picked as targets on their own, for [PRECISION]. When the bodyguard is destroyed, its characters carry on as separate units.
 - **Pre-battle checklist:** muster, mission, battlefield, attacker/defender, battle formations (mark units in reserves), deployment, pre-battle abilities, first turn.
 - **Turn flow:** Start of turn → Command → Movement → Shooting → Charge → Fight → End of turn, for 5 battle rounds.

@@ -68,6 +68,10 @@ export interface GameState {
   step: number;
   /** Round + player for which CP was already granted, to avoid double-adding. */
   cpGrantedFor?: string;
+  /** Ticked checklist items, keyed by checklistKey(). */
+  checks?: Record<string, boolean>;
+  /** How much guidance Play mode shows. */
+  guidance?: 'full' | 'compact';
   log: LogEntry[];
 }
 
@@ -287,6 +291,11 @@ export function prevStep(prev: GameState): GameState {
     g.preStep = PRE_BATTLE.length - 1;
   }
   return g;
+}
+
+/** Key for a checklist tick: pre-battle ticks are per game, battle ticks per turn. */
+export function checklistKey(g: GameState, stepId: string, itemId: string) {
+  return g.stage === 'prebattle' ? `pre:${stepId}:${itemId}` : `${g.round}:${g.activePlayer}:${stepId}:${itemId}`;
 }
 
 export function jumpTo(prev: GameState, phase: number, step = 0): GameState {
