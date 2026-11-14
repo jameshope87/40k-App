@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { KNOWN_SOURCES, type DataSource, clearCache, listCachedFiles, loadSource, storeLocalFile } from '../bsdata/loader';
+import { KNOWN_SOURCES, type DataSource, listCachedFiles, loadSource, storeLocalFile } from '../bsdata/loader';
 import { settingsStore, useStore } from '../store';
 import { navigate } from '../router';
 
@@ -31,11 +31,11 @@ export default function DataSources() {
   const update = async () => {
     setStatus('Checking for updates…');
     try {
-      await clearCache(settings.source);
+      // Cached files are only replaced once a new copy has downloaded.
       await loadSource(settings.source, setStatus, { refresh: true });
-      setStatus('Updated. Catalogues will be downloaded again when you open a list.');
+      setStatus('Updated. Factions are refreshed again when you next open them.');
     } catch (e) {
-      setStatus(`Update failed: ${String(e)}`);
+      setStatus(`Update failed: ${(e as Error).message ?? String(e)} Your cached data has not been changed.`);
     }
     refreshCached();
   };

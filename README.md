@@ -11,12 +11,14 @@ An unofficial web app, also packaged for Android, for:
 
 It runs in any modern browser, installs as a PWA (offline capable) and builds as a native Android app with Capacitor.
 
+> **Data source status (November 2026):** on 12 November 2026 GitHub removed the BSData Warhammer repositories (including `wh40k-11e` and `wh40k-10e`) after a DMCA takedown notice from Games Workshop. Until BSData or another source makes data available, new factions cannot be downloaded. Lists, games and photos already saved on a device are unaffected, and factions already opened on a device keep working offline. Play mode's dice, scoring and custom-target attack helper don't need any army data. The app reads the BattleScribe data format from any GitHub repository you choose under **Data sources**.
+
 > Unofficial fan-made tool, not affiliated with or endorsed by Games Workshop. Warhammer 40,000 is a trademark of Games Workshop. No rules text is bundled with the app. Unit, weapon and ability text is downloaded from BSData at runtime. The turn-by-turn summaries in Play mode are short paraphrased reminders written for this app. Always check the official Core Rules.
 
 ## Features
 
 ### List builder
-- Choose a data source. The default is `BSData/wh40k-11e` (11th edition). `BSData/wh40k-10e` and any custom BSData-format repo also work.
+- Choose a data source. The default was `BSData/wh40k-11e` (11th edition), currently unavailable (see above). Any GitHub repository in the BattleScribe data format (JSON or XML) can be added, and files can also be loaded from the device.
 - Pick a faction, then add units grouped by battlefield role, with search.
 - Configure options: model counts, wargear choices, enhancements, warlord, detachment, battle size.
 - **Model loadouts:** split models off a squad ("Split off 1") so they can take different wargear, e.g. 4× chainsword + 1× eviscerator. Groups with identical wargear can be merged back.
@@ -98,11 +100,10 @@ The `android/` folder is a [Capacitor](https://capacitorjs.com) project that wra
 | Game state and turn flow | `src/play/game.ts` |
 | UI (React) | `src/ui/**` |
 
-To test the engine against a local checkout of a BSData repo:
+The optional integration tests (`*.integration.test.ts`) run the engine against a local folder of BattleScribe-format data files, if you have one:
 
 ```bash
-git clone --depth 1 https://github.com/BSData/wh40k-11e /tmp/wh40k-11e
-BSDATA_DIR=/tmp/wh40k-11e BSDATA_CAT=Necrons npx vitest run integration
+BSDATA_DIR=/path/to/data BSDATA_CAT=Necrons npx vitest run integration
 ```
 
 ## Known limitations / ideas for next steps

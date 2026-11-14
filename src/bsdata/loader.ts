@@ -43,14 +43,46 @@ function sourceKey(src: DataSource) {
   return `${src.repo}@${src.branch}`;
 }
 
+/** The repository could not be found (deleted, renamed, made private or taken down). */
+export class SourceUnavailableError extends Error {
+  constructor(readonly repo: string) {
+    super(
+      `The data source "${repo}" is no longer available on GitHub. It may have been removed, renamed or made private. ` +
+        'Lists and games saved on this device are safe, and factions you have opened before on this device still work offline.',
+    );
+    this.name = 'SourceUnavailableError';
+  }
+}
+
+/** The device could not reach the internet at all. */
+export class OfflineError extends Error {
+  constructor(repo: string) {
+    super(`Could not reach GitHub to load "${repo}". Check your internet connection. Factions you have opened before on this device still work offline.`);
+    this.name = 'OfflineError';
+  }
+}
+
 /** List the data files in a repo. Tries the GitHub API, then jsDelivr. */
 export async function listRepoFiles(src: DataSource): Promise<RepoFile[]> {
   const errors: string[] = [];
+  const statuses: number[] = [];
+  let networkFailures = 0;
+  const get = async (url: string, init?: RequestInit) => {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      networkFailures++;
+      throw e;
+    }
+  };
   try {
-    const res = await fetch(`https://api.github.com/repos/${src.repo}/contents?ref=${encodeURIComponent(src.branch)}`, {
+    const res = await get(`https://api.github.com/repos/${src.repo}/contents?ref=${encodeURIComponent(src.branch)}`, {
       headers: { Accept: 'application/vnd.github+json' },
     });
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+    if (!res.ok) {
+      statuses.push(res.status);
+      throw new Error(`GitHub API ${res.status}`);
+    }
     const json = (await res.json()) as { name: string; type: string; size: number; sha: string }[];
     return json
       .filter((f) => f.type === 'file' && DATA_EXT.test(f.name))
@@ -59,8 +91,11 @@ export async function listRepoFiles(src: DataSource): Promise<RepoFile[]> {
     errors.push(String(e));
   }
   try {
-    const res = await fetch(`https://data.jsdelivr.com/v1/packages/gh/${src.repo}@${src.branch}?structure=flat`);
-    if (!res.ok) throw new Error(`jsDelivr ${res.status}`);
+    const res = await get(`https://data.jsdelivr.com/v1/packages/gh/${src.repo}@${src.branch}?structure=flat`);
+    if (!res.ok) {
+      statuses.push(res.status);
+      throw new Error(`jsDelivr ${res.status}`);
+    }
     const json = (await res.json()) as { files: { name: string; size: number; hash?: string }[] };
     return json.files
       .map((f) => ({ name: f.name.replace(/^\//, ''), size: f.size, sha: f.hash }))
@@ -68,6 +103,9 @@ export async function listRepoFiles(src: DataSource): Promise<RepoFile[]> {
   } catch (e) {
     errors.push(String(e));
   }
+  if (networkFailures === 2) throw new OfflineError(src.repo);
+  // GitHub answers 404 for repositories that no longer exist (or are private).
+  if (statuses[0] === 404) throw new SourceUnavailableError(src.repo);
   throw new Error(`Could not list files for ${src.repo}: ${errors.join('; ')}`);
 }
 
@@ -193,6 +231,8 @@ export class LoadedSource {
   constructor(
     readonly source: DataSource,
     readonly repoFiles: RepoFile[],
+    /** Re-download files even if cached (the cached copy is kept if a download fails). */
+    readonly refresh = false,
   ) {}
 
   get gameSystemFile() {
@@ -217,7 +257,7 @@ export class LoadedSource {
   private async loadFile(file: RepoFile): Promise<RawDataFile> {
     const existing = this.files.get(file.name);
     if (existing) return existing;
-    const text = await fetchDataFileText(this.source, file);
+    const text = await fetchDataFileText(this.source, file, { refresh: this.refresh });
     const data = parseDataFile(text);
     this.files.set(file.name, data);
     this.fileById.set(data.id, file.name);
@@ -291,8 +331,8 @@ export function loadSource(src: DataSource, onProgress?: ProgressFn, opts: { ref
       if (!cached.length) throw e;
       files = cached.map((name) => ({ name }));
     }
-    if (opts.refresh) await clearCache(src);
-    const ls = new LoadedSource(src, files);
+    // Never clear the cache up front: if the source has gone away, cached files are all that is left.
+    const ls = new LoadedSource(src, files, !!opts.refresh);
     await ls.init(onProgress);
     return ls;
   })();
