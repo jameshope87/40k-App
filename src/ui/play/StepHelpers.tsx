@@ -233,6 +233,7 @@ function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
       {list.map((f) => {
         const u = f.lead;
         const cannot = u.moved === 'advance' || u.moved === 'fallback';
+        // (Units must also be within 12" of an enemy and unengaged; the players check that on the table.)
         const r = rolls[u.uid];
         return (
           <FormationLine key={u.uid} f={f}>

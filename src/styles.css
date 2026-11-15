@@ -887,3 +887,14 @@ details > summary::marker {
 .issues-ok {
   border-color: color-mix(in srgb, var(--gold) 60%, var(--line));
 }
+.check-item span,
+.summary-list li {
+  white-space: pre-line;
+}
+.strat {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.strat:last-child {
+  border-bottom: 0;
+}

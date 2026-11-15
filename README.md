@@ -127,6 +127,6 @@ BSDATA_DIR=/path/to/data BSDATA_CAT=Necrons npx vitest run integration
   - percentage constraints
   - in-unit associations (such as icons or instruments assigned to models)
 - In Play mode, damage to an attached unit is applied to the bodyguard. Pick the character as the target when attacks can be allocated to it.
-- The Play-mode summaries follow the 11th edition turn structure as a quick reference. They are deliberately brief, and some edge cases are left to the rulebook.
+- The Play-mode guidance is paraphrased and was checked against the 11th edition Core Rules and the Warhammer Event Companion. For rare interactions and FAQs, the official Rules Appendix in the Warhammer 40,000 app takes precedence.
 - Planned: accounts with cloud sync (Supabase), building on the backup format.
 - Ideas: shared game sessions between two phones, mission and secondary card tracking, Crusade support, importing New Recruit / BattleScribe `.rosz` files.

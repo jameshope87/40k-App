@@ -49,6 +49,7 @@ function targetFromUnit(u: UnitState): TargetProfile {
     woundsLostOnCurrent: u.woundsLost,
     feelNoPain: parseFnp(u),
     keywords: [...u.sheet.keywords, ...u.sheet.factionKeywords],
+    stealth: [...u.sheet.rules, ...u.sheet.abilities].some((a) => /^stealth$/i.test(a.name.trim())),
   };
 }
 
@@ -134,6 +135,10 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
     ...defaultOptions(weapons.length ? scaled(weapons[0]) : 5),
     charged: !!attacker?.charged,
     remainedStationary: attacker?.moved === 'stationary',
+    targetInCover: (() => {
+      const first = defender.units.find((u) => u.uid === targetUid);
+      return first ? !!targetFromUnit(first).stealth : false;
+    })(),
   }));
   const [stages, setStages] = useState<{ a?: AttackCountStage; h?: HitStage; w?: WoundStage; s?: SaveStage; d?: DamageStage }>({});
   const [applied, setApplied] = useState(false);
@@ -260,7 +265,18 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
         <NumField label="Models" value={opts.attackers} onChange={(v) => set({ attackers: Math.max(0, v ?? 0) })} />
         <label className="field grow">
           <span>Target</span>
-          <select value={targetUid} onChange={(e) => (setTargetUid(e.target.value), setStages({}), setApplied(false))}>
+          <select
+            value={targetUid}
+            onChange={(e) => {
+              const tu = defender.units.find((u) => u.uid === e.target.value);
+              setTargetUid(e.target.value);
+              if (tu && targetFromUnit(tu).stealth) set({ targetInCover: true });
+              else {
+                setStages({});
+                setApplied(false);
+              }
+            }}
+          >
             {defenderGroups.flatMap((f) => {
               const living = f.members.filter((u) => u.modelsRemaining > 0);
               const describe = (u: UnitState) => `${u.modelsRemaining} models, T${u.sheet.stats[0]?.T} Sv${u.sheet.stats[0]?.Sv}`;
@@ -301,11 +317,27 @@ export default function AttackHelper({ game, attackerSide, attackerUid, kind, on
                 <input type="checkbox" checked={opts.halfRange} onChange={(e) => set({ halfRange: e.target.checked })} /> Half range
               </label>
               <label className="row nowrap">
-                <input type="checkbox" checked={opts.remainedStationary} onChange={(e) => set({ remainedStationary: e.target.checked })} /> Remained stationary
+                <input type="checkbox" checked={opts.remainedStationary} onChange={(e) => set({ remainedStationary: e.target.checked })} /> Moved 3" or less (Heavy)
               </label>
               <label className="row nowrap">
-                <input type="checkbox" checked={opts.targetInCover} onChange={(e) => set({ targetInCover: e.target.checked })} /> Target in cover
+                <input type="checkbox" checked={opts.targetInCover} onChange={(e) => set({ targetInCover: e.target.checked })} /> Target has cover
               </label>
+              <label className="row nowrap">
+                <input type="checkbox" checked={opts.plunging} onChange={(e) => set({ plunging: e.target.checked })} /> Plunging fire
+              </label>
+              <label className="row nowrap">
+                <input type="checkbox" checked={opts.targetEngagedMonster} onChange={(e) => set({ targetEngagedMonster: e.target.checked })} /> Target is an engaged MONSTER/VEHICLE
+              </label>
+              {weapon && parseAbilities(weapon.keywords).indirectFire && (
+                <label className="row nowrap">
+                  Indirect:
+                  <select value={opts.indirect} onChange={(e) => set({ indirect: e.target.value as AttackOptions['indirect'] })} style={{ minHeight: 30 }}>
+                    <option value="none">Target is visible</option>
+                    <option value="blind">Not visible (1–5 fail)</option>
+                    <option value="spotted">Not visible, stood still + friendly can see it (1–3 fail)</option>
+                  </select>
+                </label>
+              )}
             </>
           )}
           <label className="row nowrap">
@@ -464,9 +496,9 @@ function stageExplain(i: number, plan: ReturnType<typeof planAttack> | undefined
     case 3:
       return plan.saveOn > 6
         ? 'The target has no save that can stop these attacks.'
-        : `The defender rolls one D6 per wound. Each roll of ${plan.saveOn}+ is saved${plan.saveIsInvuln ? ' (invulnerable save)' : ` (Sv${t.save}+ made worse by AP)`}. A 1 always fails.`;
+        : `The defender rolls all the save dice together, then works through them from the lowest result up. Each roll of ${plan.saveOn}+ stops an attack${plan.saveIsInvuln ? ' (invulnerable save)' : ` (Sv${t.save}+ after AP)`}. A 1 always fails.`;
     case 4:
-      return `Each failed save deals ${plan.damageExpr} damage to one model (${t.wounds}W each). Damage left over when a model dies is lost${plan.fnp ? `. Feel No Pain ${plan.fnp}+ can ignore wounds` : ''}.`;
+      return `Each failed save deals ${plan.damageExpr} damage to one model (${t.wounds}W each), starting with a model that is already wounded. Damage left over when a model dies is lost${plan.abilities.devastatingWounds ? '. Devastating Wounds mortal wounds are dealt after normal damage, and each can only damage one model' : ''}${plan.fnp ? `. Feel No Pain ${plan.fnp}+ can ignore wounds` : ''}.`;
   }
   return '';
 }

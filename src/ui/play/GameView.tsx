@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { gamesStore, saveGame, useStore } from '../../store';
 import { navigate } from '../../router';
 import { BATTLE_READY_VP, type GameState, currentStep, jumpTo, nextStep, normalisePreStep, prevStep, styleOf, vp } from '../../play/game';
-import { DISCLAIMER, GLOSSARY, MAX_ROUNDS, PLAY_STYLES, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
+import { CORE_STRATAGEMS, DISCLAIMER, GLOSSARY, MAX_ROUNDS, PLAY_STYLES, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
 import { Counter, Modal, Rich } from '../common';
 import StepHelper from './StepHelpers';
 import StepGuide from './StepGuide';
@@ -203,6 +203,24 @@ export default function GameView({ uid }: { uid: string }) {
                     </li>
                   ))}
                 </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        {panel === 'glossary' && (
+          <div className="card" style={{ marginBottom: 10 }}>
+            <h3>Core Stratagems</h3>
+            <p className="small muted" style={{ marginTop: 0 }}>
+              Every army can use these. In brief; see the Core Rules for the full wording.
+            </p>
+            {CORE_STRATAGEMS.map((st) => (
+              <div key={st.name} className="strat">
+                <div className="spread small">
+                  <b>{st.name}</b>
+                  <span className="pill gold">{st.cp}</span>
+                </div>
+                <div className="tiny muted">{st.when}</div>
+                <div className="small">{st.effect}</div>
               </div>
             ))}
           </div>

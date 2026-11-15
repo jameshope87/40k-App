@@ -59,6 +59,18 @@ describe('attack planning', () => {
     expect(invuln.saveIsInvuln).toBe(true);
   });
 
+  it('handles Blast X, Cleave X, indirect fire and plunging fire', () => {
+    const blast2 = planAttack({ ...bolter, keywords: ['Blast 2'] }, { ...marines, models: 12 }, defaultOptions(1));
+    expect(blast2.extraAttacksPerModel).toBe(4);
+    const cleave = planAttack({ ...bolter, kind: 'melee', keywords: ['Cleave 1'] }, { ...marines, models: 16 }, defaultOptions(1));
+    expect(cleave.extraAttacksPerModel).toBe(3);
+    const arty = { ...bolter, skill: '3+', keywords: ['Indirect Fire'] };
+    expect(planAttack(arty, marines, { ...defaultOptions(1), indirect: 'blind' }).hitOn).toBe(6);
+    expect(planAttack(arty, marines, { ...defaultOptions(1), indirect: 'spotted' }).hitOn).toBe(4); // cover makes BS 4+, and 1-3 fail
+    expect(planAttack(bolter, marines, { ...defaultOptions(1), plunging: true }).hitOn).toBe(2);
+    expect(planAttack(bolter, marines, { ...defaultOptions(1), targetEngagedMonster: true }).hitOn).toBe(4);
+  });
+
   it('applies anti-X critical wounds', () => {
     const w = { ...bolter, keywords: ['Anti-Infantry 4+', 'Devastating Wounds'] };
     const plan = planAttack(w, marines, defaultOptions(1));
@@ -92,8 +104,10 @@ describe('staged resolution', () => {
     const dmg = rollDamage(plan, { dice: [], unsaved: 2 }, { dice: [], wounds: 2, mortal: 0 }, marines, faces(1));
     expect(dmg.modelsDestroyed).toBe(2);
     expect(dmg.wasted).toBe(2);
+    // Devastating Wounds: each critical wound's mortal wounds only damage one model.
     const mortal = rollDamage(plan, { dice: [], unsaved: 0 }, { dice: [], wounds: 0, mortal: 2 }, marines, faces(1));
-    expect(mortal.modelsDestroyed).toBe(3);
+    expect(mortal.modelsDestroyed).toBe(2);
+    expect(mortal.wasted).toBe(2);
   });
 
   it('estimates roughly the analytic average', () => {
