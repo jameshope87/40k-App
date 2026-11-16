@@ -26,3 +26,13 @@ describe('listing a data source', () => {
     expect((await listRepoFiles(src)).map((f) => f.name)).toEqual(['Army.json']);
   });
 });
+
+describe('data bundles', () => {
+  it('recognises bundles exported by the app and ignores other files', async () => {
+    const { parseDataBundle, DATA_BUNDLE_FORMAT } = await import('./loader');
+    const bundle = { format: DATA_BUNDLE_FORMAT, version: 1, exportedAt: 1, source: { repo: 'a/b', branch: 'main' }, note: '', files: [{ name: 'X.json', text: '{}' }] };
+    expect(parseDataBundle(JSON.stringify(bundle))?.files).toHaveLength(1);
+    expect(parseDataBundle('{"catalogue":{"id":"c"}}')).toBeUndefined();
+    expect(parseDataBundle('<catalogue/>')).toBeUndefined();
+  });
+});

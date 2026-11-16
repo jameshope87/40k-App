@@ -208,6 +208,48 @@ export async function listCachedFiles(src: DataSource): Promise<string[]> {
   return all.filter((k) => typeof k === 'string' && k.startsWith(prefix)).map((k) => k.slice(prefix.length));
 }
 
+// ---- moving cached data between your own devices --------------------------
+
+export const DATA_BUNDLE_FORMAT = 'muster-data-bundle';
+
+/** All data files cached for a source, in one file, so they can be moved to another of your devices. */
+export interface DataBundle {
+  format: typeof DATA_BUNDLE_FORMAT;
+  version: 1;
+  exportedAt: number;
+  source: { repo: string; branch: string };
+  note: string;
+  files: { name: string; text: string }[];
+}
+
+export async function exportCachedFiles(src: DataSource): Promise<DataBundle> {
+  const files: DataBundle['files'] = [];
+  for (const name of (await listCachedFiles(src)).sort()) {
+    const cached = await cacheGet(`${sourceKey(src)}/${name}`);
+    if (cached) files.push({ name, text: cached.text });
+  }
+  return {
+    format: DATA_BUNDLE_FORMAT,
+    version: 1,
+    exportedAt: Date.now(),
+    source: { repo: src.repo, branch: src.branch },
+    note: 'Personal copy of cached army data, for moving to your own devices. Please do not share or upload it.',
+    files,
+  };
+}
+
+/** Returns the bundle if `text` is a data bundle exported by this app. */
+export function parseDataBundle(text: string): DataBundle | undefined {
+  if (!text.trimStart().startsWith('{') || !text.includes(DATA_BUNDLE_FORMAT)) return undefined;
+  try {
+    const b = JSON.parse(text) as Partial<DataBundle>;
+    if (b.format !== DATA_BUNDLE_FORMAT || !Array.isArray(b.files)) return undefined;
+    return b as DataBundle;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function clearCache(src: DataSource) {
   if (!store) return;
   for (const f of await listCachedFiles(src)) await del(`${sourceKey(src)}/${f}`, store);
