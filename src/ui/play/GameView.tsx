@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { gamesStore, saveGame, useStore } from '../../store';
 import { navigate } from '../../router';
-import { type GameState, currentStep, jumpTo, nextStep, prevStep, vp } from '../../play/game';
-import { DISCLAIMER, GLOSSARY, MAX_ROUNDS, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
-import { parseDice } from '../../play/dice';
+import { BATTLE_READY_VP, type GameState, currentStep, jumpTo, nextStep, normalisePreStep, prevStep, styleOf, vp } from '../../play/game';
+import { CORE_STRATAGEMS, DISCLAIMER, GLOSSARY, MAX_ROUNDS, PLAY_STYLES, PRE_BATTLE, RULES_EDITION, TURN } from '../../play/rules';
 import { Counter, Modal, Rich } from '../common';
-import { openDice } from '../DiceTray';
 import StepHelper from './StepHelpers';
+import StepGuide from './StepGuide';
 import AttackHelper from './AttackHelper';
 import { ArmyPanel } from './UnitPanel';
 import { relevantAbilities, unitLabel } from './abilities';
@@ -47,7 +46,10 @@ export default function GameView({ uid }: { uid: string }) {
 
   const nextLabel = (() => {
     if (game.stage === 'ended') return 'Game over';
-    if (game.stage === 'prebattle') return game.preStep < PRE_BATTLE.length - 1 ? `Next: ${PRE_BATTLE[game.preStep + 1].title}` : 'Begin battle round 1';
+    if (game.stage === 'prebattle') {
+      const n = nextStep(game);
+      return n.stage === 'prebattle' ? `Next: ${PRE_BATTLE[n.preStep].title}` : 'Begin battle round 1';
+    }
     if (phase && game.step < phase.steps.length - 1) return `Next: ${phase.steps[game.step + 1].title}`;
     if (game.phase < TURN.length - 1) return `Next: ${TURN[game.phase + 1].name}`;
     const second = game.activePlayer !== game.firstPlayer;
@@ -93,6 +95,32 @@ export default function GameView({ uid }: { uid: string }) {
           </div>
         )}
 
+        <div className="row small" style={{ margin: '8px 0 0', gap: 6 }}>
+          <span className="segmented" role="group" aria-label="Play style">
+            {(['casual', 'matched'] as const).map((st) => (
+              <button
+                key={st}
+                className={styleOf(game) === st ? 'active' : ''}
+                onClick={() =>
+                  update((g) => {
+                    g.style = st;
+                    normalisePreStep(g);
+                  })
+                }
+              >
+                {st === 'casual' ? 'Casual' : 'Matched / event'}
+              </button>
+            ))}
+          </span>
+          <span className="segmented" role="group" aria-label="Guidance">
+            {(['full', 'compact'] as const).map((gd) => (
+              <button key={gd} className={(game.guidance ?? 'full') === gd ? 'active' : ''} onClick={() => update((g) => (g.guidance = gd))}>
+                {gd === 'full' ? 'Full guide' : 'Compact'}
+              </button>
+            ))}
+          </span>
+        </div>
+
         <div className="tabs" style={{ margin: '10px 0' }}>
           {(['step', 'armies', 'log', 'glossary'] as const).map((t) => (
             <button key={t} className={panel === t ? 'active' : ''} onClick={() => setPanel(t)}>
@@ -116,66 +144,32 @@ export default function GameView({ uid }: { uid: string }) {
         )}
 
         {panel === 'step' && step && game.stage !== 'ended' && (
-          <div className="card step-card">
-            <div className="tiny muted">
-              {game.stage === 'prebattle' ? `Pre-battle step ${game.preStep + 1} of ${PRE_BATTLE.length}` : `${phase?.name} · step ${game.step + 1} of ${phase?.steps.length} · ${active.name} is the active player`}
-            </div>
-            <h2>{step.title}</h2>
-            <ul className="summary-list">
-              {step.summary.map((s, i) => (
-                <li key={i} style={s.startsWith('•') ? { listStyle: 'none', marginLeft: -4 } : undefined}>
-                  <Rich text={s} />
-                </li>
-              ))}
-            </ul>
-            {!!step.dice?.length && (
-              <div className="row" style={{ marginBottom: 10 }}>
-                <span className="small muted">Dice:</span>
-                {step.dice.map((d) => {
-                  const p = parseDice(d.expr);
-                  return (
-                    <button key={d.label} className="small" onClick={() => openDice({ count: Math.max(1, p.count), sides: p.sides || 6, target: d.target, label: d.label })} title={d.note}>
-                      🎲 {d.label} ({d.expr})
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {step.helper && (
-              <div style={{ margin: '10px 0' }}>
-                <StepHelper helper={step.helper} game={game} update={update} openAttack={(side, u, kind) => setAttack({ side, uid: u, kind })} />
-              </div>
-            )}
-            {!!step.watchFor?.length && (
-              <div className="watch" style={{ marginTop: 10 }}>
-                <b>Watch for:</b>
-                <ul className="summary-list" style={{ margin: '4px 0 0' }}>
-                  {step.watchFor.map((w) => (
-                    <li key={w}>
-                      <Rich text={w} />
-                    </li>
+          <StepGuide
+            game={game}
+            phase={phase}
+            step={step}
+            update={update}
+            helper={step.helper ? <StepHelper helper={step.helper} game={game} update={update} openAttack={(side, u, kind) => setAttack({ side, uid: u, kind })} /> : undefined}
+            abilities={
+              abilities.length ? (
+                <details style={{ marginTop: 10 }}>
+                  <summary className="small">
+                    <b>Abilities that may apply</b> <span className="muted">({abilities.length})</span>
+                  </summary>
+                  {abilities.map((a, i) => (
+                    <div key={i} style={{ margin: '6px 0' }}>
+                      <div className="small">
+                        <b>{a.name}</b> <span className="muted">· {unitLabel(a.unit)} ({a.player.name})</span>
+                      </div>
+                      <div className="rule-text muted small">
+                        <Rich text={a.text} />
+                      </div>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
-            {!!abilities.length && (
-              <details style={{ marginTop: 10 }}>
-                <summary className="small">
-                  <b>Abilities that may apply</b> <span className="muted">({abilities.length})</span>
-                </summary>
-                {abilities.map((a, i) => (
-                  <div key={i} style={{ margin: '6px 0' }}>
-                    <div className="small">
-                      <b>{a.name}</b> <span className="muted">· {unitLabel(a.unit)} ({a.player.name})</span>
-                    </div>
-                    <div className="rule-text muted small">
-                      <Rich text={a.text} />
-                    </div>
-                  </div>
-                ))}
-              </details>
-            )}
-          </div>
+                </details>
+              ) : undefined
+            }
+          />
         )}
 
         {panel === 'armies' && <ArmyPanel game={game} update={update} />}
@@ -194,6 +188,43 @@ export default function GameView({ uid }: { uid: string }) {
           </div>
         )}
 
+        {panel === 'glossary' && (
+          <div className="grid2" style={{ marginBottom: 10 }}>
+            {PLAY_STYLES.map((ps) => (
+              <div key={ps.style} className={`card ${styleOf(game) === ps.style ? 'issues-ok' : ''}`}>
+                <h3>
+                  {ps.title} {styleOf(game) === ps.style && <span className="pill gold">this game</span>}
+                </h3>
+                <p className="small muted">{ps.blurb}</p>
+                <ul className="summary-list small">
+                  {ps.points.map((pt) => (
+                    <li key={pt}>
+                      <Rich text={pt} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        {panel === 'glossary' && (
+          <div className="card" style={{ marginBottom: 10 }}>
+            <h3>Core Stratagems</h3>
+            <p className="small muted" style={{ marginTop: 0 }}>
+              Every army can use these. In brief; see the Core Rules for the full wording.
+            </p>
+            {CORE_STRATAGEMS.map((st) => (
+              <div key={st.name} className="strat">
+                <div className="spread small">
+                  <b>{st.name}</b>
+                  <span className="pill gold">{st.cp}</span>
+                </div>
+                <div className="tiny muted">{st.when}</div>
+                <div className="small">{st.effect}</div>
+              </div>
+            ))}
+          </div>
+        )}
         {panel === 'glossary' && (
           <div className="card">
             {GLOSSARY.map((g) => (
@@ -228,6 +259,15 @@ export default function GameView({ uid }: { uid: string }) {
                 <Counter label="Primary" value={p.vpPrimary} onChange={(v) => update((g) => (g.players[i].vpPrimary = v))} />
                 <Counter label="Secondary" value={p.vpSecondary} onChange={(v) => update((g) => (g.players[i].vpSecondary = v))} />
               </div>
+              <label className="opt small" style={{ marginTop: 6 }}>
+                <input type="checkbox" checked={!!p.battleReady} onChange={(e) => update((g) => (g.players[i].battleReady = e.target.checked))} />
+                <span className="name">Battle Ready army (+{BATTLE_READY_VP}VP)</span>
+              </label>
+              {styleOf(game) === 'matched' && (
+                <p className={`tiny ${p.vpPrimary > 45 || p.vpSecondary > 45 ? 'red' : 'muted'}`} style={{ margin: 0 }}>
+                  Matched play limits: primary {p.vpPrimary}/45, secondary {p.vpSecondary}/45 (max 15 of each per battle round).
+                </p>
+              )}
             </div>
           ))}
         </Modal>

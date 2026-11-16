@@ -191,9 +191,23 @@ function AttackList({ game, side, kind, openAttack }: { game: GameState; side: 0
   const list = formations(game.players[side]).filter(
     (f) => alive(f) && !f.lead.inReserves && f.members.some((u) => u.modelsRemaining > 0 && u.sheet.weapons.some((w) => w.kind === kind)),
   );
-  if (!list.length) return <p className="small muted">{game.players[side].name} has no units that can make {kind} attacks.</p>;
+  const calculator = (
+    <button className="small" onClick={() => openAttack(side, '', kind)}>
+      🧮 Attack calculator{list.length ? ' (enter stats)' : ''}
+    </button>
+  );
+  if (!list.length)
+    return (
+      <div className="row">
+        {!game.players[side].units.length ? null : <span className="small muted">{game.players[side].name} has no units that can make {kind} attacks.</span>}
+        {calculator}
+      </div>
+    );
   return (
     <div>
+      <div className="row" style={{ justifyContent: 'flex-end' }}>
+        {calculator}
+      </div>
       {list.map((f) => {
         const u = f.lead;
         const blocked = kind === 'ranged' && u.moved === 'fallback';
@@ -219,6 +233,7 @@ function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
       {list.map((f) => {
         const u = f.lead;
         const cannot = u.moved === 'advance' || u.moved === 'fallback';
+        // (Units must also be within 12" of an enemy and unengaged; the players check that on the table.)
         const r = rolls[u.uid];
         return (
           <FormationLine key={u.uid} f={f}>
@@ -259,16 +274,30 @@ function ChargeHelper({ game, update }: { game: GameState; update: Update }) {
 }
 
 function ScoreHelper({ game, update }: { game: GameState; update: Update }) {
-  const side = game.activePlayer;
+  // Both players can score at the end of a turn; the active player goes first.
+  const order = [game.activePlayer, game.activePlayer === 0 ? 1 : 0] as const;
+  return (
+    <div className="stack">
+      {order.map((side) => (
+        <ScoreRow key={side} game={game} side={side} update={update} />
+      ))}
+    </div>
+  );
+}
+
+function ScoreRow({ game, side, update }: { game: GameState; side: 0 | 1; update: Update }) {
   const p = game.players[side];
   const add = (field: 'vpPrimary' | 'vpSecondary', n: number) =>
     update((g) => {
       g.players[side][field] = Math.max(0, g.players[side][field] + n);
-      if (n > 0) log(g, `${p.name} scored ${n} ${field === 'vpPrimary' ? 'primary' : 'secondary'} VP.`);
+      if (n > 0) log(g, `${p.name} scored ${n} ${field === 'vpPrimary' ? 'primary' : 'secondary'} VP.`, side);
     });
   return (
     <div className="row">
-      <span className="small">{p.name}:</span>
+      <span className="small">
+        <b>{p.name}</b>
+        {side === game.activePlayer ? ' (active)' : ''}:
+      </span>
       <span className="row nowrap">
         Primary
         {[1, 2, 3, 5].map((n) => (
@@ -357,7 +386,12 @@ function MusterHelper({ game }: { game: GameState }) {
   );
 }
 
+/** Helpers that only make sense when the player has an army list loaded. */
+const NEEDS_UNITS: Helper[] = ['battleshock', 'move', 'reserves', 'charge', 'muster', 'deploy'];
+
 export default function StepHelper({ helper, game, update, openAttack }: Props) {
+  const hasUnits = helper === 'deploy' || helper === 'muster' ? game.players.some((p) => p.units.length) : game.players[game.activePlayer].units.length > 0;
+  if (NEEDS_UNITS.includes(helper) && !hasUnits) return null;
   switch (helper) {
     case 'muster':
       return <MusterHelper game={game} />;

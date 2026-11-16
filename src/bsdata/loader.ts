@@ -43,14 +43,46 @@ function sourceKey(src: DataSource) {
   return `${src.repo}@${src.branch}`;
 }
 
+/** The repository could not be found (deleted, renamed, made private or taken down). */
+export class SourceUnavailableError extends Error {
+  constructor(readonly repo: string) {
+    super(
+      `The data source "${repo}" is no longer available on GitHub. It may have been removed, renamed or made private. ` +
+        'Lists and games saved on this device are safe, and factions you have opened before on this device still work offline.',
+    );
+    this.name = 'SourceUnavailableError';
+  }
+}
+
+/** The device could not reach the internet at all. */
+export class OfflineError extends Error {
+  constructor(repo: string) {
+    super(`Could not reach GitHub to load "${repo}". Check your internet connection. Factions you have opened before on this device still work offline.`);
+    this.name = 'OfflineError';
+  }
+}
+
 /** List the data files in a repo. Tries the GitHub API, then jsDelivr. */
 export async function listRepoFiles(src: DataSource): Promise<RepoFile[]> {
   const errors: string[] = [];
+  const statuses: number[] = [];
+  let networkFailures = 0;
+  const get = async (url: string, init?: RequestInit) => {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      networkFailures++;
+      throw e;
+    }
+  };
   try {
-    const res = await fetch(`https://api.github.com/repos/${src.repo}/contents?ref=${encodeURIComponent(src.branch)}`, {
+    const res = await get(`https://api.github.com/repos/${src.repo}/contents?ref=${encodeURIComponent(src.branch)}`, {
       headers: { Accept: 'application/vnd.github+json' },
     });
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+    if (!res.ok) {
+      statuses.push(res.status);
+      throw new Error(`GitHub API ${res.status}`);
+    }
     const json = (await res.json()) as { name: string; type: string; size: number; sha: string }[];
     return json
       .filter((f) => f.type === 'file' && DATA_EXT.test(f.name))
@@ -59,8 +91,11 @@ export async function listRepoFiles(src: DataSource): Promise<RepoFile[]> {
     errors.push(String(e));
   }
   try {
-    const res = await fetch(`https://data.jsdelivr.com/v1/packages/gh/${src.repo}@${src.branch}?structure=flat`);
-    if (!res.ok) throw new Error(`jsDelivr ${res.status}`);
+    const res = await get(`https://data.jsdelivr.com/v1/packages/gh/${src.repo}@${src.branch}?structure=flat`);
+    if (!res.ok) {
+      statuses.push(res.status);
+      throw new Error(`jsDelivr ${res.status}`);
+    }
     const json = (await res.json()) as { files: { name: string; size: number; hash?: string }[] };
     return json.files
       .map((f) => ({ name: f.name.replace(/^\//, ''), size: f.size, sha: f.hash }))
@@ -68,6 +103,9 @@ export async function listRepoFiles(src: DataSource): Promise<RepoFile[]> {
   } catch (e) {
     errors.push(String(e));
   }
+  if (networkFailures === 2) throw new OfflineError(src.repo);
+  // GitHub answers 404 for repositories that no longer exist (or are private).
+  if (statuses[0] === 404) throw new SourceUnavailableError(src.repo);
   throw new Error(`Could not list files for ${src.repo}: ${errors.join('; ')}`);
 }
 
@@ -130,9 +168,37 @@ export async function fetchDataFileText(src: DataSource, file: RepoFile | string
 }
 
 /** Store a user-supplied file (e.g. picked from the device) under a source. */
-export async function storeLocalFile(src: DataSource, name: string, text: string) {
-  parseDataFile(text); // validate
+const GAME_SYSTEM_FILES_KEY = 'muster.gameSystemFiles';
+
+/** Remember which file of a source is the game system, whatever it is called. */
+function rememberGameSystemFile(src: DataSource, name: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem(GAME_SYSTEM_FILES_KEY) ?? '{}') as Record<string, string>;
+    map[sourceKey(src)] = name;
+    localStorage.setItem(GAME_SYSTEM_FILES_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+function rememberedGameSystemFile(src: DataSource): string | undefined {
+  try {
+    return (JSON.parse(localStorage.getItem(GAME_SYSTEM_FILES_KEY) ?? '{}') as Record<string, string>)[sourceKey(src)];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Store a user-supplied file (e.g. picked from the device) under a source.
+ * Returns what kind of file it was. Throws if it isn't a BattleScribe data file.
+ */
+export async function storeLocalFile(src: DataSource, name: string, text: string): Promise<{ kind: 'gameSystem' | 'catalogue'; name: string }> {
+  const data = parseDataFile(text); // validate
   await cacheSet(`${sourceKey(src)}/${name}`, { text, fetchedAt: Date.now() });
+  const kind = data.type === 'gameSystem' ? 'gameSystem' : 'catalogue';
+  if (kind === 'gameSystem') rememberGameSystemFile(src, name);
+  return { kind, name: data.name };
 }
 
 export async function listCachedFiles(src: DataSource): Promise<string[]> {
@@ -140,6 +206,48 @@ export async function listCachedFiles(src: DataSource): Promise<string[]> {
   const prefix = `${sourceKey(src)}/`;
   const all = (await keys(store)) as string[];
   return all.filter((k) => typeof k === 'string' && k.startsWith(prefix)).map((k) => k.slice(prefix.length));
+}
+
+// ---- moving cached data between your own devices --------------------------
+
+export const DATA_BUNDLE_FORMAT = 'muster-data-bundle';
+
+/** All data files cached for a source, in one file, so they can be moved to another of your devices. */
+export interface DataBundle {
+  format: typeof DATA_BUNDLE_FORMAT;
+  version: 1;
+  exportedAt: number;
+  source: { repo: string; branch: string };
+  note: string;
+  files: { name: string; text: string }[];
+}
+
+export async function exportCachedFiles(src: DataSource): Promise<DataBundle> {
+  const files: DataBundle['files'] = [];
+  for (const name of (await listCachedFiles(src)).sort()) {
+    const cached = await cacheGet(`${sourceKey(src)}/${name}`);
+    if (cached) files.push({ name, text: cached.text });
+  }
+  return {
+    format: DATA_BUNDLE_FORMAT,
+    version: 1,
+    exportedAt: Date.now(),
+    source: { repo: src.repo, branch: src.branch },
+    note: 'Personal copy of cached army data, for moving to your own devices. Please do not share or upload it.',
+    files,
+  };
+}
+
+/** Returns the bundle if `text` is a data bundle exported by this app. */
+export function parseDataBundle(text: string): DataBundle | undefined {
+  if (!text.trimStart().startsWith('{') || !text.includes(DATA_BUNDLE_FORMAT)) return undefined;
+  try {
+    const b = JSON.parse(text) as Partial<DataBundle>;
+    if (b.format !== DATA_BUNDLE_FORMAT || !Array.isArray(b.files)) return undefined;
+    return b as DataBundle;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function clearCache(src: DataSource) {
@@ -193,10 +301,17 @@ export class LoadedSource {
   constructor(
     readonly source: DataSource,
     readonly repoFiles: RepoFile[],
+    /** Re-download files even if cached (the cached copy is kept if a download fails). */
+    readonly refresh = false,
   ) {}
 
   get gameSystemFile() {
-    return this.repoFiles.find((f) => /\.gst$/i.test(f.name)) ?? this.repoFiles.find((f) => /warhammer 40,000\.json$/i.test(f.name));
+    const remembered = rememberedGameSystemFile(this.source);
+    return (
+      (remembered ? this.repoFiles.find((f) => f.name === remembered) : undefined) ??
+      this.repoFiles.find((f) => /\.gst$/i.test(f.name)) ??
+      this.repoFiles.find((f) => /warhammer 40,000.*\.json$/i.test(f.name))
+    );
   }
 
   /** Catalogue files that can be chosen as an army (i.e. not libraries). */
@@ -217,7 +332,7 @@ export class LoadedSource {
   private async loadFile(file: RepoFile): Promise<RawDataFile> {
     const existing = this.files.get(file.name);
     if (existing) return existing;
-    const text = await fetchDataFileText(this.source, file);
+    const text = await fetchDataFileText(this.source, file, { refresh: this.refresh });
     const data = parseDataFile(text);
     this.files.set(file.name, data);
     this.fileById.set(data.id, file.name);
@@ -274,6 +389,11 @@ export class LoadedSource {
 
 const loaded = new Map<string, Promise<LoadedSource>>();
 
+/** Forget a loaded source so it is read again (e.g. after files were added from the device). */
+export function forgetSource(src: DataSource) {
+  loaded.delete(sourceKey(src));
+}
+
 /** Load (once per session) a source's file list and game system. */
 export function loadSource(src: DataSource, onProgress?: ProgressFn, opts: { refresh?: boolean } = {}): Promise<LoadedSource> {
   const key = sourceKey(src);
@@ -291,8 +411,8 @@ export function loadSource(src: DataSource, onProgress?: ProgressFn, opts: { ref
       if (!cached.length) throw e;
       files = cached.map((name) => ({ name }));
     }
-    if (opts.refresh) await clearCache(src);
-    const ls = new LoadedSource(src, files);
+    // Never clear the cache up front: if the source has gone away, cached files are all that is left.
+    const ls = new LoadedSource(src, files, !!opts.refresh);
     await ls.init(onProgress);
     return ls;
   })();

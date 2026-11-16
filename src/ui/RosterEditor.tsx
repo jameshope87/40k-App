@@ -356,6 +356,13 @@ export default function RosterEditor({ uid }: { uid: string }) {
         )}
         {ev && index && (
           <>
+            {!!index.missingCatalogues.length && (
+              <div className="card issues small" style={{ marginBottom: 12 }}>
+                <b>Some units may be missing.</b> This faction also uses {index.missingCatalogues.map((n) => `“${n}”`).join(', ')}, which{' '}
+                {index.missingCatalogues.length > 1 ? 'are' : 'is'} not on this device. Load {index.missingCatalogues.length > 1 ? 'them' : 'it'} under{' '}
+                <a href="#/data">Data sources</a>.
+              </div>
+            )}
             {!!issues.length && (
               <details className="card issues" style={{ marginBottom: 12 }}>
                 <summary>

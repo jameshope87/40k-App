@@ -14,10 +14,12 @@ export function ErrorBox({ error, onRetry }: { error: string; onRetry?: () => vo
     <div className="card issues">
       <b className="red">Something went wrong</b>
       <p className="small">{error}</p>
-      <p className="small muted">
-        If you are offline, data you have opened before is still available. Otherwise check your connection, or load catalogue files manually under
-        Data sources.
-      </p>
+      {!/still work offline/.test(error) && (
+        <p className="small muted">
+          If you are offline, data you have opened before is still available. Otherwise check your connection, or load catalogue files manually under
+          Data sources.
+        </p>
+      )}
       {onRetry && <button onClick={onRetry}>Retry</button>}
     </div>
   );

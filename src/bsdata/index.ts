@@ -81,6 +81,8 @@ export class GameIndex {
   readonly forceEntries: RawForceEntry[] = [];
   readonly costTypes: { id: string; name: string }[] = [];
   readonly files: RawDataFile[];
+  /** Names of linked catalogues that could not be found (their units will be missing). */
+  readonly missingCatalogues: string[] = [];
   readonly ptsTypeId: string;
   /** Root (army-list level) nodes available in this catalogue. */
   readonly rootNodes: Node[];
@@ -103,6 +105,7 @@ export class GameIndex {
       for (const link of cat.catalogueLinks ?? []) {
         const target = linkedCatalogues(link.targetId);
         if (target) visit(target, importRoots && !!link.importRootEntries);
+        else if (!this.missingCatalogues.includes(link.name ?? link.targetId)) this.missingCatalogues.push(link.name ?? link.targetId);
       }
     };
     visit(catalogue, true);

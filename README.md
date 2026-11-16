@@ -11,12 +11,14 @@ An unofficial web app, also packaged for Android, for:
 
 It runs in any modern browser, installs as a PWA (offline capable) and builds as a native Android app with Capacitor.
 
+> **Data source status (November 2026):** on 12 November 2026 GitHub removed the BSData Warhammer repositories (including `wh40k-11e` and `wh40k-10e`) after a DMCA takedown notice from Games Workshop. Until BSData or another source makes data available, new factions cannot be downloaded. Lists, games and photos already saved on a device are unaffected, and factions already opened on a device keep working offline. Play mode's dice, scoring and custom-target attack helper don't need any army data. The app reads the BattleScribe data format from any GitHub repository you choose under **Data sources**.
+
 > Unofficial fan-made tool, not affiliated with or endorsed by Games Workshop. Warhammer 40,000 is a trademark of Games Workshop. No rules text is bundled with the app. Unit, weapon and ability text is downloaded from BSData at runtime. The turn-by-turn summaries in Play mode are short paraphrased reminders written for this app. Always check the official Core Rules.
 
 ## Features
 
 ### List builder
-- Choose a data source. The default is `BSData/wh40k-11e` (11th edition). `BSData/wh40k-10e` and any custom BSData-format repo also work.
+- Choose a data source. The default was `BSData/wh40k-11e` (11th edition), currently unavailable (see above). Any GitHub repository in the BattleScribe data format (JSON or XML) can be added, and files can also be loaded from the device.
 - Pick a faction, then add units grouped by battlefield role, with search.
 - Configure options: model counts, wargear choices, enhancements, warlord, detachment, battle size.
 - **Model loadouts:** split models off a squad ("Split off 1") so they can take different wargear, e.g. 4× chainsword + 1× eviscerator. Groups with identical wargear can be merged back.
@@ -39,9 +41,22 @@ It runs in any modern browser, installs as a PWA (offline capable) and builds as
 - **Restore** either *merges* (keeps the most recently edited copy of each list and game) or *replaces* everything. It also accepts a single exported list.
 - The home screen reminds you if you haven't backed up for 14 days.
 - Records are merged by `uid` and `updatedAt`, ready for future cloud sync.
-- Catalogues are cached in IndexedDB, so the app works offline once a faction has been opened. You can also load `.json`/`.cat`/`.gst` files from your device.
+- Catalogues are cached in IndexedDB, so the app works offline once a faction has been opened. You can also load BattleScribe data files you already have from your device (**Data sources → Load files from device**). The game system file is recognised by its contents, so renamed copies work, and the editor names any linked catalogue that is missing.
 
 ### Play mode
+- **Guided games, with or without army lists.** Every step shows:
+  - a one-line overview and who acts (active player, opponent or both)
+  - a tick-off checklist of what to **do**, **check** and **think about**, saved per turn
+  - what the opponent can react with
+  - common mistakes
+  - a collapsible rules detail
+
+  A **Full / Compact** toggle hides the extra guidance once you know the game.
+- **Casual or matched play:** choose the type of game at setup (you can switch in-game).
+  - **Matched play** follows the Warhammer Event Companion's pre-battle order and adds event procedure: Force Disposition, terrain layouts, Fixed/Tactical secondaries, VP caps, the extra-CP limit and Battle Ready VP.
+  - **Casual games** hide that procedure and add tips for first games.
+  - The Glossary tab compares the two. The step content lives in `src/play/rules.ts`.
+- **Attack calculator** with hand-entered weapon and target stats (no list needed). It explains each roll in plain English as you go.
 - **Attached units** act as one unit: one move, one Battle-shock test, one charge. They shoot and fight with every member's weapons, and are listed together. Attacks against them use the bodyguard's profile. The attached characters can also be picked as targets on their own, for [PRECISION]. When the bodyguard is destroyed, its characters carry on as separate units.
 - **Pre-battle checklist:** muster, mission, battlefield, attacker/defender, battle formations (mark units in reserves), deployment, pre-battle abilities, first turn.
 - **Turn flow:** Start of turn → Command → Movement → Shooting → Charge → Fight → End of turn, for 5 battle rounds.
@@ -98,11 +113,10 @@ The `android/` folder is a [Capacitor](https://capacitorjs.com) project that wra
 | Game state and turn flow | `src/play/game.ts` |
 | UI (React) | `src/ui/**` |
 
-To test the engine against a local checkout of a BSData repo:
+The optional integration tests (`*.integration.test.ts`) run the engine against a local folder of BattleScribe-format data files, if you have one:
 
 ```bash
-git clone --depth 1 https://github.com/BSData/wh40k-11e /tmp/wh40k-11e
-BSDATA_DIR=/tmp/wh40k-11e BSDATA_CAT=Necrons npx vitest run integration
+BSDATA_DIR=/path/to/data BSDATA_CAT=Necrons npx vitest run integration
 ```
 
 ## Known limitations / ideas for next steps
@@ -113,6 +127,6 @@ BSDATA_DIR=/tmp/wh40k-11e BSDATA_CAT=Necrons npx vitest run integration
   - percentage constraints
   - in-unit associations (such as icons or instruments assigned to models)
 - In Play mode, damage to an attached unit is applied to the bodyguard. Pick the character as the target when attacks can be allocated to it.
-- The Play-mode summaries follow the 11th edition turn structure as a quick reference. They are deliberately brief, and some edge cases are left to the rulebook.
+- The Play-mode guidance is paraphrased and was checked against the 11th edition Core Rules and the Warhammer Event Companion. For rare interactions and FAQs, the official Rules Appendix in the Warhammer 40,000 app takes precedence.
 - Planned: accounts with cloud sync (Supabase), building on the backup format.
 - Ideas: shared game sessions between two phones, mission and secondary card tracking, Crusade support, importing New Recruit / BattleScribe `.rosz` files.

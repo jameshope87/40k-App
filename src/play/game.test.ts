@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { adjustWounds, formationLeadership, formations, isFormationHalfStrength, isHalfStrength, makeUnitState, newGame, newPlayer, nextStep } from './game';
-import { PRE_BATTLE, TURN } from './rules';
+import { PRE_BATTLE, TURN, applies } from './rules';
 import type { UnitSheet } from '../roster/summary';
 
 const sheet: UnitSheet = {
@@ -11,7 +11,8 @@ const sheet: UnitSheet = {
 describe('game flow', () => {
   it('walks pre-battle, turns and rounds', () => {
     let g = newGame(newPlayer('A'), newPlayer('B'));
-    for (let i = 0; i < PRE_BATTLE.length; i++) g = nextStep(g);
+    const casualSteps = PRE_BATTLE.filter((st) => applies(st, 'casual')).length;
+    for (let i = 0; i < casualSteps; i++) g = nextStep(g);
     expect(g.stage).toBe('battle');
     expect(g.round).toBe(1);
     const stepsPerTurn = TURN.reduce((s, p) => s + p.steps.length, 0);
@@ -60,5 +61,23 @@ describe('attached units', () => {
     squad.modelsRemaining = 0;
     f = formations(p);
     expect(f.map((x) => x.members.map((m) => m.sheet.name))).toEqual([['Squad'], ['Captain'], ['Other']]);
+  });
+});
+
+describe('play styles', () => {
+  const titles = (style: 'casual' | 'matched') => {
+    let g = newGame(newPlayer('A'), newPlayer('B'));
+    g.style = style;
+    const seen: string[] = [];
+    while (g.stage === 'prebattle') {
+      seen.push(PRE_BATTLE[g.preStep].id);
+      g = nextStep(g);
+    }
+    return seen;
+  };
+  it('skips event-only pre-battle steps in casual games', () => {
+    expect(titles('casual')).not.toContain('layout');
+    expect(titles('matched')).toContain('layout');
+    expect(titles('matched')).toEqual(['muster', 'mission', 'layout', 'battlefield', 'zones', 'secondaries', 'formations', 'deploy', 'redeploy', 'first', 'prebattle']);
   });
 });

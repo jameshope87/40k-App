@@ -17,6 +17,8 @@ export interface TargetProfile {
   woundsLostOnCurrent?: number;
   feelNoPain?: number;
   keywords: string[];
+  /** Has the Stealth ability (benefit of cover against ranged attacks). */
+  stealth?: boolean;
 }
 
 export type Reroll = 'none' | 'ones' | 'fails';
@@ -30,6 +32,12 @@ export interface AttackOptions {
   hitMod: number;
   woundMod: number;
   saveMod: number;
+  /** Indirect shooting at a target that isn't visible: 'blind' (1–5 fail) or 'spotted' (stationary + target visible to a friendly unit: 1–3 fail). */
+  indirect: 'none' | 'blind' | 'spotted';
+  /** Target is an engaged MONSTER/VEHICLE (−1 to hit for ranged attacks). */
+  targetEngagedMonster: boolean;
+  /** Plunging fire: +1 BS. */
+  plunging: boolean;
   rerollHits: Reroll;
   rerollWounds: Reroll;
   /** Extra damage per attack (e.g. from an ability). */
@@ -45,6 +53,9 @@ export const defaultOptions = (attackers = 1): AttackOptions => ({
   hitMod: 0,
   woundMod: 0,
   saveMod: 0,
+  indirect: 'none',
+  targetEngagedMonster: false,
+  plunging: false,
   rerollHits: 'none',
   rerollWounds: 'none',
   damageBonus: 0,
@@ -58,6 +69,11 @@ export interface WeaponAbilities {
   twinLinked: boolean;
   anti: { keyword: string; on: number }[];
   blast: boolean;
+  /** Extra attack dice per 5 target models ([BLAST] = 1, [BLAST X] = X). */
+  blastX: number;
+  /** [CLEAVE X]: extra attack dice per 5 target models when attacking a single target. */
+  cleaveX: number;
+  indirectFire: boolean;
   rapidFire: string | null;
   melta: string | null;
   heavy: boolean;
@@ -84,7 +100,10 @@ export function parseAbilities(keywords: string[]): WeaponAbilities {
       .map((k) => /^anti-(.+?)\s+(\d)\+$/i.exec(k))
       .filter((m): m is RegExpExecArray => !!m)
       .map((m) => ({ keyword: m[1].trim(), on: Number(m[2]) })),
-    blast: has(/^blast$/i),
+    blast: has(/^blast(\s*\d+)?$/i),
+    blastX: Number(find(/^blast\s*(\d+)$/i)?.[1] ?? (has(/^blast$/i) ? 1 : 0)),
+    cleaveX: Number(find(/^cleave\s*(\d+)$/i)?.[1] ?? 0),
+    indirectFire: has(/^indirect fire$/i),
     rapidFire: find(/^rapid fire\s*(\S+)$/i)?.[1] ?? null,
     melta: find(/^melta\s*(\S+)$/i)?.[1] ?? null,
     heavy: has(/^heavy$/i),
@@ -137,9 +156,14 @@ export function planAttack(weapon: WeaponProfile, target: TargetProfile, o: Atta
 
   // Attacks
   let extra = 0;
-  if (ab.blast && !melee) {
-    const b = Math.floor(target.models / 5);
-    if (b) notes.push(`Blast: +${b} attack${b > 1 ? 's' : ''} per model (${target.models} models in target).`);
+  if (ab.blastX) {
+    const b = Math.floor(target.models / 5) * ab.blastX;
+    if (b) notes.push(`Blast: +${b} attack${b > 1 ? 's' : ''} per weapon (${target.models} models in the target).`);
+    extra += b;
+  }
+  if (ab.cleaveX) {
+    const b = Math.floor(target.models / 5) * ab.cleaveX;
+    if (b) notes.push(`Cleave ${ab.cleaveX}: +${b} attack${b > 1 ? 's' : ''} per weapon against a single target of ${target.models} models.`);
     extra += b;
   }
   let rapidFireExpr: string | null = null;
@@ -151,21 +175,43 @@ export function planAttack(weapon: WeaponProfile, target: TargetProfile, o: Atta
   // Hit roll
   let skill = parseTarget(weapon.skill) ?? 7;
   let hitMod = 0;
-  if (o.targetInCover && !ab.ignoresCover && !melee) {
-    skill += 1;
-    notes.push('Target has the benefit of cover: worsen BS by 1.');
-  } else if (o.targetInCover && ab.ignoresCover) {
-    notes.push('Ignores Cover: target gets no benefit of cover.');
+  const indirect = !melee && ab.indirectFire && o.indirect !== 'none';
+  const inCover = !melee && (o.targetInCover || indirect);
+  if (inCover && !ab.ignoresCover) {
+    if (ab.psychic) notes.push('Psychic: the cover penalty to BS is ignored.');
+    else {
+      skill += 1;
+      notes.push(`Target has the benefit of cover${indirect && !o.targetInCover ? ' (indirect shooting)' : ''}: BS is worse by 1.`);
+    }
+  } else if (inCover && ab.ignoresCover) {
+    notes.push('Ignores Cover: the target gets no benefit of cover.');
+  }
+  if (o.plunging && !melee) {
+    skill -= 1;
+    notes.push('Plunging fire: BS is improved by 1.');
   }
   if (ab.heavy && o.remainedStationary && !melee) {
     hitMod += 1;
-    notes.push('Heavy: +1 to hit (unit remained stationary).');
+    notes.push('Heavy: +1 to hit (no model moved more than 3" this turn).');
+  }
+  if (o.targetEngagedMonster && !melee) {
+    hitMod -= 1;
+    notes.push('Shooting at an engaged MONSTER/VEHICLE: −1 to hit.');
   }
   hitMod += o.hitMod;
+  if (ab.psychic && hitMod < 0) {
+    notes.push('Psychic: negative hit modifiers are ignored.');
+    hitMod = 0;
+  }
   hitMod = clamp(hitMod, -1, 1);
   const autoHit = ab.torrent;
   if (autoHit) notes.push('Torrent: attacks hit automatically (no hit roll).');
-  const hitOn = clamp(skill - hitMod, 2, 7);
+  let hitOn = clamp(skill - hitMod, 2, 7);
+  if (indirect && !autoHit) {
+    // Unmodified 1–5 (or 1–3 when spotted) fail regardless of BS.
+    hitOn = Math.max(hitOn, o.indirect === 'spotted' ? 4 : 6);
+    notes.push(o.indirect === 'spotted' ? 'Indirect shooting: unmodified hit rolls of 1–3 fail. Hits can’t be re-rolled.' : 'Indirect shooting: unmodified hit rolls of 1–5 fail. Hits can’t be re-rolled.');
+  }
 
   // Wound roll
   const S = parseNum(weapon.strength);
@@ -187,7 +233,7 @@ export function planAttack(weapon: WeaponProfile, target: TargetProfile, o: Atta
   if (ab.lethalHits) notes.push('Lethal Hits: critical hits (unmodified 6s) wound automatically.');
   if (ab.sustainedHits) notes.push(`Sustained Hits ${ab.sustainedHits}: critical hits score ${ab.sustainedHits} extra hit(s).`);
   if (ab.twinLinked) notes.push('Twin-linked: re-roll the wound roll.');
-  if (ab.devastatingWounds) notes.push('Devastating Wounds: critical wounds become mortal wounds (no saves).');
+  if (ab.devastatingWounds) notes.push('Devastating Wounds: each critical wound inflicts mortal wounds equal to D (no save), which can only damage one model.');
 
   // Save
   const ap = Math.abs(parseNum(weapon.ap));
@@ -291,7 +337,8 @@ export interface HitStage {
 
 export function rollHits(plan: AttackPlan, attacks: number, o: AttackOptions, rng: Rng = defaultRng): HitStage {
   if (plan.autoHit) return { dice: [], hits: attacks, autoWounds: 0, crits: 0, sustainedExtra: 0 };
-  const dice = rollWithReroll(attacks, plan.hitOn, plan.critHitOn, o.rerollHits, rng);
+  const noReroll = plan.abilities.indirectFire && o.indirect !== 'none' && plan.weapon.kind === 'ranged';
+  const dice = rollWithReroll(attacks, plan.hitOn, plan.critHitOn, noReroll ? 'none' : o.rerollHits, rng);
   let hits = 0;
   let autoWounds = 0;
   let crits = 0;
@@ -414,10 +461,11 @@ export function rollDamage(plan: AttackPlan, save: SaveStage, wound: WoundStage,
     perAttack.push(d);
     allocate(applyFnp(d), false);
   }
+  // Devastating Wounds: mortal wounds from each critical wound can only damage one model.
   for (let i = 0; i < wound.mortal; i++) {
     const d = rollOneDamage(plan, rng);
     perAttack.push(d);
-    allocate(applyFnp(d), true);
+    allocate(applyFnp(d), false);
   }
   return { perAttack, fnpDice, damageDealt: dealt, modelsDestroyed: destroyed, woundsLostOnCurrent: lost, wasted };
 }
@@ -465,7 +513,7 @@ export function estimate(plan: AttackPlan, target: TargetProfile, o: AttackOptio
 export function describeAttacks(plan: AttackPlan, o: AttackOptions): string {
   const per = parseDice(plan.attacksExpr);
   const parts = [`${o.attackers} × ${plan.attacksExpr}`];
-  if (plan.extraAttacksPerModel) parts.push(`+${plan.extraAttacksPerModel} each (Blast)`);
+  if (plan.extraAttacksPerModel) parts.push(`+${plan.extraAttacksPerModel} each (Blast/Cleave)`);
   if (plan.rapidFireExpr) parts.push(`+${plan.rapidFireExpr} each (Rapid Fire)`);
   const fixed = per.count === 0 && (!plan.rapidFireExpr || parseDice(plan.rapidFireExpr).count === 0);
   const total = fixed ? o.attackers * (per.bonus + plan.extraAttacksPerModel + (plan.rapidFireExpr ? parseNum(plan.rapidFireExpr) : 0)) : undefined;

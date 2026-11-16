@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { KNOWN_SOURCES, type DataSource, clearCache, listCachedFiles, loadSource, storeLocalFile } from '../bsdata/loader';
+import { KNOWN_SOURCES, type DataSource, exportCachedFiles, forgetSource, listCachedFiles, loadSource, parseDataBundle, storeLocalFile } from '../bsdata/loader';
+import { saveTextFile, safeFileName } from '../files';
+import { clearIndexCache } from '../useCatalogue';
 import { settingsStore, useStore } from '../store';
 import { navigate } from '../router';
 
@@ -31,26 +33,58 @@ export default function DataSources() {
   const update = async () => {
     setStatus('Checking for updates…');
     try {
-      await clearCache(settings.source);
+      // Cached files are only replaced once a new copy has downloaded.
       await loadSource(settings.source, setStatus, { refresh: true });
-      setStatus('Updated. Catalogues will be downloaded again when you open a list.');
+      setStatus('Updated. Factions are refreshed again when you next open them.');
     } catch (e) {
-      setStatus(`Update failed: ${String(e)}`);
+      setStatus(`Update failed: ${(e as Error).message ?? String(e)} Your cached data has not been changed.`);
     }
     refreshCached();
   };
 
   const upload = async (files: FileList | null) => {
     if (!files) return;
-    for (const f of Array.from(files)) {
+    const lines: string[] = [];
+    const store = async (name: string, text: string, prefix = '') => {
       try {
-        await storeLocalFile(settings.source, f.name, await f.text());
-        setStatus(`Stored ${f.name}`);
+        const r = await storeLocalFile(settings.source, name, text);
+        lines.push(`✓ ${prefix}${name}${r.kind === 'gameSystem' ? ' (game system)' : ''}`);
       } catch (e) {
-        setStatus(`${f.name}: ${String(e)}`);
+        lines.push(`✗ ${prefix}${name}: not a BattleScribe data file (${(e as Error).message ?? e})`);
+      }
+    };
+    for (const f of Array.from(files)) {
+      setStatus(`Reading ${f.name}…`);
+      const text = await f.text();
+      const bundle = parseDataBundle(text);
+      if (bundle) {
+        lines.push(`${f.name}: ${bundle.files.length} data file(s) exported from this app`);
+        for (const df of bundle.files) await store(df.name, df.text, '  ');
+      } else {
+        await store(f.name, text);
       }
     }
+    forgetSource(settings.source);
+    clearIndexCache();
+    setStatus(`${lines.join('\n')}\nOpen “New list” to choose a faction from these files.`);
     refreshCached();
+  };
+
+  const exportData = async () => {
+    try {
+      setStatus('Preparing data files…');
+      const bundle = await exportCachedFiles(settings.source);
+      if (!bundle.files.length) {
+        setStatus('There are no data files stored for this source on this device. If you used a different source, select it under Game data first.');
+        return;
+      }
+      const d = new Date();
+      const name = `muster-data-${safeFileName(settings.source.repo.split('/').pop() ?? 'data')}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`;
+      await saveTextFile(name, JSON.stringify(bundle));
+      setStatus(`Exported ${bundle.files.length} data file(s) to ${name}. On your other device, use “Load files from device…” and pick this file.`);
+    } catch (e) {
+      setStatus(`Export failed: ${(e as Error).message ?? e}`);
+    }
   };
 
   return (
@@ -93,10 +127,17 @@ export default function DataSources() {
             <button onClick={update}>Download latest data</button>
             <label className="btn">
               Load files from device…
-              <input type="file" multiple accept=".json,.cat,.gst" hidden onChange={(e) => upload(e.target.files)} />
+              <input type="file" multiple hidden onChange={(e) => (upload(e.target.files), (e.target.value = ''))} />
             </label>
+            <button onClick={exportData} disabled={!cached.length}>
+              Export data files…
+            </button>
           </div>
-          {status && <p className="small">{status}</p>}
+          <p className="tiny muted">
+            Export saves this device’s data files as one file, so you can load them on another of your own devices. It is a personal copy: please don’t share it or upload it
+            anywhere public.
+          </p>
+          {status && <p className="small" style={{ whiteSpace: 'pre-wrap' }}>{status}</p>}
           {!!cached.length && (
             <details>
               <summary className="small muted">Cached files</summary>
